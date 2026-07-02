@@ -1195,9 +1195,12 @@ per-validator credit.
 
 ## State key layout
 
-All canoLiq keys live under prefix `[]byte{10}` to stay clear of Canopy core
-prefixes (`1`=accounts, `2`=pools, `7`=gov). See `state.go` for the helper
-functions and key composition.
+All canoLiq keys live under prefix `[]byte{20}` to stay clear of Canopy core
+prefixes, which reserve the single-byte range `1`-`15` (`1`=accounts, `2`=pools,
+`7`=gov, `10`=supply, …). Writing under a reserved prefix makes `FSM.StateWrite`
+panic, so canoLiq uses `20` and declares it in
+`CanoliqConfig.CustomStatePrefixes`. See `state.go` for the helper functions and
+key composition.
 
 ## Read-only HTTP query layer (Phase 3)
 

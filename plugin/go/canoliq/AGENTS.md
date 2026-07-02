@@ -38,8 +38,11 @@ binary is a drop-in superset of the send tutorial.
 
 ## State key layout
 
-All canoliq keys live under prefix `[]byte{10}`. Canopy core uses 1=accounts,
-2=pools, 7=gov; `10` was chosen to leave room and stay unambiguous. Subdomains
+All canoliq keys live under prefix `[]byte{20}`. Canopy core reserves the
+single-byte range 1-15 (1=accounts, 2=pools, 7=gov, 10=supply, …); writing
+under any of those makes `FSM.StateWrite` panic, so canoliq uses `20` — outside
+the reserved range — and declares it in `CanoliqConfig.CustomStatePrefixes` so
+the handshake validates it. Subdomains
 are single-byte discriminators inside `JoinLenPrefix` segments — see
 `state.go` for the canonical list. Phase 1 used `domainGlobals=1` …
 `domainParams=11`; Phase 2 added `domainCplqStake=12`, `domainCplqUnstaking=13`,

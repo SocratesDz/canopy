@@ -23,6 +23,11 @@ var CanoliqConfig = &contract.PluginConfig{
 	Name:    "canoliq_plugin",
 	Id:      2,
 	Version: 1,
+	// canoLiq stores all of its records under the single-byte prefix {20}
+	// (see state.go canoliqPrefix), which is outside Canopy core's reserved
+	// range (1-15). Declaring it here lets core validate the choice during the
+	// handshake and reject any future collision with a core-reserved prefix.
+	CustomStatePrefixes: [][]byte{{20}},
 	SupportedTransactions: []string{
 		"send",
 		"canoliq_deposit",
