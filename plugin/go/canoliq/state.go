@@ -7,12 +7,15 @@ import (
 
 // State key layout for the canoLiq plugin.
 //
-// All keys live under prefix []byte{10} to stay clear of the Canopy core
-// prefixes documented in plugin/go/AGENTS.md (1=accounts, 2=pools, 7=gov).
-// Subdomains use single-byte discriminators inside JoinLenPrefix segments to
-// keep keys compact and unambiguous.
+// All keys live under prefix []byte{20} to stay clear of the Canopy core
+// prefixes, which reserve the contiguous single-byte range 1-15 (accounts,
+// pools, validators, ... supply=10; see fsm/key.go and lib.CoreReservedPrefixMax).
+// Writing under a reserved prefix makes FSM.StateWrite panic, so this MUST stay
+// outside 1-15. It is also declared in CanoliqConfig.CustomStatePrefixes so the
+// handshake validates it at startup. Subdomains use single-byte discriminators
+// inside JoinLenPrefix segments to keep keys compact and unambiguous.
 var (
-	canoliqPrefix = []byte{10}
+	canoliqPrefix = []byte{20}
 
 	domainGlobals       = []byte{1}
 	domainCcnpyBal      = []byte{2}
