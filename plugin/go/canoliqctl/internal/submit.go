@@ -22,11 +22,6 @@ type TxParams struct {
 // SubmitPluginTx serializes msg as a canoliq plugin transaction, signs it with
 // signer's BLS12-381 private key, and POSTs the JSON envelope to /v1/tx.
 // Returns the tx hash returned by the node.
-//
-// msgType must be one of the keys registered in MsgTypeURL (e.g.,
-// "canoliq_deposit"). The signed envelope uses the msgTypeUrl/msgBytes
-// path because plugin-only types are unknown to the server's tx schema —
-// the server forwards the raw bytes to the plugin process.
 func SubmitPluginTx(rpcURL string, signer *Key, msgType string, msg proto.Message, params TxParams) (string, error) {
 	typeURL, ok := MsgTypeURL[msgType]
 	if !ok {
