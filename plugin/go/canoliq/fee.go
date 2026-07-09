@@ -16,7 +16,12 @@ func computeMint(amount, totalCcnpy, totalPooled uint64) uint64 {
 	if amount == 0 {
 		return 0
 	}
-	return mulDiv(amount, totalCcnpy+1, totalPooled+1)
+	// When no cCNPY exists yet, mint 1:1 regardless of any pre-pooled rewards
+	// (block rewards can accumulate in TotalPooledCnpy before the first deposit).
+	if totalCcnpy == 0 {
+		return amount
+	}
+	return mulDiv(amount, totalCcnpy, totalPooled)
 }
 
 // computeRedeem returns the amount of CNPY owed for a cCNPY burn at the current

@@ -99,6 +99,12 @@ func (c *Canoliq) ProcessRewards(req *contract.PluginEndRequest) *contract.Plugi
 	// User accrual: net rewards plus the user-rebate slice flow into the
 	// pooled CNPY backing cCNPY, lifting the cCNPY/CNPY exchange rate.
 	userSlice := netToUsers + split.UserRebate
+	// Skip reward pooling when there are no cCNPY holders yet — the user slice
+	// has nobody to belong to, so adding it to TotalPooledCnpy before any deposit
+	// would break computeMint by inflating totalPooled against a zero supply.
+	if globals.TotalCcnpySupply == 0 {
+		return nil
+	}
 	globals.TotalPooledCnpy += userSlice
 	// Advance the peak-TVL high water mark (T4) post-accrual.
 	if globals.TotalPooledCnpy > globals.PeakTvlUcnpy {
