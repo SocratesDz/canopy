@@ -24,7 +24,7 @@ const (
 
 // ActionType classifies a proposal so per-action governance tiers can apply
 // distinct quorum / approval / timelock / voting-period rules (Tokenomics
-// v1.1 §7). Inferred from the proposal payload at creation time.
+// v1.2 §7). Inferred from the proposal payload at creation time.
 type ActionType int32
 
 const (
@@ -90,7 +90,7 @@ func (ActionType) EnumDescriptor() ([]byte, []int) {
 }
 
 // LockTier is the vote-escrow lock duration a staker commits to (Tokenomics
-// v1.1 §4.2). Longer locks grant a higher voting multiplier and reward boost.
+// v1.2 §4.2). Longer locks grant a higher voting multiplier and reward boost.
 type LockTier int32
 
 const (
@@ -1107,7 +1107,7 @@ type CanoliqParams struct {
 	ClaimFee uint64 `protobuf:"varint,8,opt,name=claim_fee,json=claimFee,proto3" json:"claimFee"` // @gotags: json:"claimFee"
 	// cplq_transfer_fee: minimum tx fee for a CPLQ transfer (uCNPY)
 	CplqTransferFee uint64 `protobuf:"varint,9,opt,name=cplq_transfer_fee,json=cplqTransferFee,proto3" json:"cplqTransferFee"` // @gotags: json:"cplqTransferFee"
-	// insurance_bps: share of treasury credit redirected to insurance (default 1500 = 15% of treasury slice)
+	// insurance_bps: share of treasury credit redirected to insurance (default 500 = 5% of treasury slice)
 	InsuranceBps uint64 `protobuf:"varint,10,opt,name=insurance_bps,json=insuranceBps,proto3" json:"insuranceBps"` // @gotags: json:"insuranceBps"
 	// treasury_threshold: spend amount above which multisig + timelock kick in (uCNPY-equivalent)
 	TreasuryThreshold uint64 `protobuf:"varint,11,opt,name=treasury_threshold,json=treasuryThreshold,proto3" json:"treasuryThreshold"` // @gotags: json:"treasuryThreshold"
@@ -1135,7 +1135,7 @@ type CanoliqParams struct {
 	MultisigApproveFee uint64 `protobuf:"varint,22,opt,name=multisig_approve_fee,json=multisigApproveFee,proto3" json:"multisigApproveFee"` // @gotags: json:"multisigApproveFee"
 	// min_stake_to_propose: minimum staked CPLQ a proposer must hold
 	MinStakeToPropose uint64 `protobuf:"varint,23,opt,name=min_stake_to_propose,json=minStakeToPropose,proto3" json:"minStakeToPropose"` // @gotags: json:"minStakeToPropose"
-	// governance: per-action governance tiers (Tokenomics v1.1 §7). When a
+	// governance: per-action governance tiers (Tokenomics v1.2 §7). When a
 	// tier matches a proposal's ActionType it overrides the scalar
 	// quorum_bps / pass_threshold_bps / timelock_blocks / voting_period_blocks
 	// above; an empty list (or unmatched action) falls back to those scalars.

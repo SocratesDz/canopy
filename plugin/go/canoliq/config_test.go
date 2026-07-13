@@ -203,7 +203,7 @@ func TestBundledTestnetGenesisIsSafetyCheckClean(t *testing.T) {
 }
 
 // TestValidateParamsFeeBpsBounds pins the F4 fee-rate bound (Tokenomics
-// v1.1 §3.3 / WP §4.1: 5%–20%). ValidateParams must reject any FeeBps
+// v1.2 §3.3 / WP §4.1: 5%–20%). ValidateParams must reject any FeeBps
 // outside [500, 2000] and accept the edges. This is the enforcement a
 // passed param-change proposal hits in dispatchPassed before SaveParams.
 func TestValidateParamsFeeBpsBounds(t *testing.T) {

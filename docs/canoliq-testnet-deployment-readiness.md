@@ -19,8 +19,9 @@ work and pins down exactly what data the devs must supply.
 **Decisions (confirmed with user):**
 - I wire the dev-provided data into the files once values are supplied; devs only
   provide values + review.
-- Known code gaps (stuck-redemption alert, `phase2_test.go:208` vet warning, stale
-  insurance README line) are **out-of-scope follow-ups**, not testnet blockers.
+- Remaining known code gap (the stuck-redemption alert) is an **out-of-scope
+  follow-up**, not a testnet blocker. (The `phase2_test.go` vet warning and the
+  stale insurance README line have since been fixed on `main`.)
 - I perform a governance security **self-review** pass *and* flag for an external
   reviewer.
 
@@ -54,8 +55,9 @@ Last re-run: 2026-06-24 (build green, testnet genesis safety-check clean).
 - [ ] Populate `validatorRegistry[]` with real **operator** validator addresses (the
       same ones doing `MessageEditStake` — **not** the §B signers). Needed for WS3 T1
       validator-eject coverage + per-validator reward credit. See §C.
-- [ ] TVL-cap decision — genesis ships uncapped (`TvlCapUcnpy: 0`); spec §9.4 wants a
-      33%-of-network-stake cap. Set at genesis or via param-change (T3).
+- [x] TVL-cap decision — resolved. The cap is now `tvl_cap_bps`, a fraction of
+      total Canopy stake, defaulting to **3300** (33%, per spec §9.4). Tune at
+      genesis or via param-change (T3); set to 0 to run uncapped.
 
 **Part 4 — Execution / verification (run on the image) ⚙️**
 - [ ] WS2 pre-flight: safety banner + self-bootstrap → bucket reconciliation (exactly
@@ -112,9 +114,7 @@ vesting is intentional — the v1.2 tokenomics schedule is enforced by the bucke
 recipient, not by the genesis vesting mechanism (24-month DAO-controlled
 emission for Liquidity Incentives; 12-month snapshot-based linear emission for
 Community & Airdrops). Dev team confirmed (2026-06-18) that the addresses above
-for buckets #2 and #3 are controlled distributors that honor those schedules;
-see [the discrepancy report](./canoliq-whitepaper-tokenomics-discrepancies.md)
-for the audit trail.
+for buckets #2 and #3 are controlled distributors that honor those schedules.
 
 ### B. Multisig signers → `genesis.testnet.json` `params.multisigSigners[]`  ✅ supplied 2026-06-18
 - N signer addresses (20-byte hex). `multisigThreshold` (default 3) must be ≤ N.
@@ -231,7 +231,7 @@ tests. On the `compose.testnet.yaml` image, drive via `canoliqctl` + `/v1/*`:
 - **T2** — stake with `--lock 12m`/`24m`; confirm boosted vote weight and that a
   `BUYBACK_DISTRIBUTE_STAKERS` execution boosts locked stakers; unstake rejected
   before `lock_end_height`.
-- **T3** — set a low `tvl_cap_ucnpy` via param-change; deposit at cap accepted,
+- **T3** — set a low `tvl_cap_bps` via param-change; deposit at cap accepted,
   above rejected; `/v1/health` shows utilization.
 - **T4** — observe insurance skim auto-off once reserve hits 5% of peak TVL;
   `/v1/pools` shows `peakTvlUcnpy` / `insuranceFundedBps`.
@@ -294,9 +294,10 @@ redone, so Workstreams 1–2 must be signed off first.
 ## Out of scope (follow-ups, not testnet blockers)
 
 - Stuck-redemption alert condition (needs a global mature-unclaimed-redemption
-  index; T6 shipped the other three conditions).
-- Pre-existing `go vet` copylocks warning at `phase2_test.go:208`.
-- Stale `README.md` "Insurance fund" narration (`insurance_bps=1500` → should read
-  500 post-F5).
+  index; T6 shipped the other three conditions). **Still open.**
+- ~~`go vet` copylocks warning at `phase2_test.go:208`~~ — fixed on `main`
+  (`proto.Clone`).
+- ~~Stale `README.md` "Insurance fund" narration (`insurance_bps=1500`)~~ — fixed
+  on `main` (now reads 500).
 - Independent/external security audit (recommended before *mainnet*; testnet uses
   the self-review pass).

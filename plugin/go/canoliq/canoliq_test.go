@@ -221,9 +221,9 @@ func TestClaimRedemptionMaturity(t *testing.T) {
 }
 
 // TestRewardSplitWhitepaperExample verifies the canonical 12% / 40-30-15-15
-// split for a clean X=1000 reward delta. With v1.1 defaults the 30%
+// split for a clean X=1000 reward delta. With v1.2 defaults the 30%
 // treasury slice is skimmed by insurance_bps=500 (5% of treasury → 0.15%
-// of fee) per Tokenomics v1.1 §8. Expected:
+// of fee) per Tokenomics v1.2 §8. Expected:
 //   fee  = 120
 //   net  = 880  (to user pool)
 //   user-rebate (40% of 120) = 48 (also to user pool) → 928 total to pool
@@ -278,7 +278,7 @@ func TestRewardSplitWhitepaperExample(t *testing.T) {
 }
 
 // TestWhitepaperSection7Reconciliation pins the end-to-end yield math from
-// the canoLiq Whitepaper v1.1 §7 worked example. Under v1.1, Canopy does NOT
+// the canoLiq Whitepaper v1.2 §7 worked example. Under v1.2, Canopy does NOT
 // apply a protocol-level DAO tax on top of rewards before distribution
 // (WP §3.3), so canoLiq receives its committee share R directly. With a
 // non-round R=950 exercising integer truncation:
@@ -289,7 +289,7 @@ func TestRewardSplitWhitepaperExample(t *testing.T) {
 //	rebate (40%)   = 45  (114*4000/10000 = 45.6 → 45 truncated)
 //	user yield     = 836 + 45 = 881  (= 0.88 * R = 836.0 + rebate)
 //
-// Effective user yield matches Tokenomics v1.1 §4.1 "Effective user yield =
+// Effective user yield matches Tokenomics v1.2 §4.1 "Effective user yield =
 // 88% × Rewards Received."
 func TestWhitepaperSection7Reconciliation(t *testing.T) {
 	c, s := newTestCanoliq()
@@ -309,11 +309,11 @@ func TestWhitepaperSection7Reconciliation(t *testing.T) {
 	g2 := loadGlobals(t, s)
 	const wantUserYield = 881
 	if g2.TotalPooledCnpy != wantUserYield {
-		t.Errorf("user yield: got %d want %d (Tokenomics v1.1 §4.1: 0.88 * R with truncation)", g2.TotalPooledCnpy, wantUserYield)
+		t.Errorf("user yield: got %d want %d (Tokenomics v1.2 §4.1: 0.88 * R with truncation)", g2.TotalPooledCnpy, wantUserYield)
 	}
 	// Sanity: fee = 114, treasury = 34 (114*3000/10000 = 34.2 truncated, plus
 	// any residual from rounding the splits goes to treasury). insurance_bps=500
-	// skims 5% off the treasury credit per Tokenomics v1.1 §8.
+	// skims 5% off the treasury credit per Tokenomics v1.2 §8.
 	const wantFee = 114
 	const wantTreasuryRaw = 34 + 1 // 35 before insurance skim
 	const wantInsurance = 1        // mulDiv(35, 500, 10000) = 1

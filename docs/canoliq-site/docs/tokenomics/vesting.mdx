@@ -6,6 +6,31 @@ sidebar_label: Vesting
 
 CPLQ allocations at genesis are distributed via vesting schedules with cliff and linear unlock periods.
 
+## Genesis Schedules
+
+The genesis buckets ship with these cliff/vest windows (source of truth:
+`plugin/go/canoliq/genesis.*.json`; a bucket with `cliffMonths = vestMonths = 0` is liquid
+immediately). The total window is `cliffMonths + vestMonths`, unlocking linearly between the
+cliff and the end.
+
+| Bucket | Cliff | Linear vest | Total window |
+|--------|-------|-------------|--------------|
+| Validators & Infrastructure | 12 mo | 24 mo | 36 mo (3 yr) |
+| Founders & Core Team | 12 mo | 36 mo | 48 mo (4 yr) |
+| Strategic Partners & Integrations | 6 mo | 12 mo | 18 mo |
+| Liquidity Incentives | — | — | immediate |
+| Community & Airdrops | — | — | immediate |
+| DAO Treasury (canoLiq) | — | — | immediate |
+| Developer Grants & Ecosystem | — | — | immediate |
+
+:::note Why the validator cliff is 12 months, not 6
+The canoLiq Whitepaper's distribution table (§5.2) once listed a **6-month** cliff for the
+validator bucket, while the Tokenomics paper (§2.1 / §6) specifies **12 months** and
+explicitly argues a 6-month cliff is *"insufficient given the operational commitment"* required
+of validators. The Tokenomics paper governs vesting numbers, and the genesis files implement
+the **12-month** cliff. Treat the Whitepaper's 6-month figure as superseded.
+:::
+
 ## Vesting Model
 
 Each `VestingSchedule` record tracks:

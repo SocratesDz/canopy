@@ -7,8 +7,9 @@ This file documents the canoLiq-specific gotchas. The general plugin architectur
 ## What canoLiq is
 
 A liquid-staking sub-chain implemented as a sibling Go plugin to `contract/`.
-Spec: `docs/plans/canoliq-implementation-plan.md` and the two whitepapers
-referenced there.
+Spec: the canoLiq v1.2 papers (captured in the `canoliq-papers` skill; source
+PDFs in repo-root `docs/`). Rollout work is tracked in
+`docs/plans/canoliq-release-plan.md`.
 
 Single binary, two plugins. `main.go` selects via `CANOPY_PLUGIN_MODE`:
 
@@ -103,15 +104,15 @@ Canopy core. Always use it for `(a*b)/c` over uint64 amounts.
 
 ## Whitepaper §7 reconciliation
 
-Under Whitepaper v1.1 §3.3, Canopy does **not** apply a protocol-level DAO
+Under Whitepaper v1.2 §3.3, Canopy does **not** apply a protocol-level DAO
 tax on top of rewards before distribution. canoliq's pool sees the full
 committee share `R` directly. Any test that pins the whitepaper number
 (e.g., `TestWhitepaperSection7Reconciliation`) seeds the pool with `R`.
-Effective user yield per Tokenomics v1.1 §4.1 is `0.88 × R` (modulo
+Effective user yield per Tokenomics v1.2 §4.1 is `0.88 × R` (modulo
 truncation), since the plugin applies its 12% fee on `R` with no upstream
 cut to back out.
 
-For `R=950` / 12% fee / 40-30-15-15 split with truncation **and v1.1
+For `R=950` / 12% fee / 40-30-15-15 split with truncation **and v1.2
 defaults including `insurance_bps=500`** (5% of treasury slice per
 Tokenomics §8), the reference output is: yield=881, treasury=34,
 insurance=1, validators=17, buyback=17, sum=950. Conservation includes
@@ -223,8 +224,8 @@ Idempotency on the spend itself is via `TreasurySpend.executed`.
 
 `ProcessRewards` skims `mulDiv(split.Treasury, params.InsuranceBps, 10_000)`
 into `canoliq/insurance/pool` before crediting `treasury/canoliq`. Default
-`insurance_bps=1500` (15% of treasury slice ≈ 1.5% of fee) — within WP §11's
-"1–2% of treasury" framing. The insurance pool is a passive accumulator in
+`insurance_bps=500` (5% of treasury slice ≈ 0.5% of fee) — matches Tokenomics
+§8 / WP §9.2 ("insurance fund of 5% of DAO treasury"). The insurance pool is a passive accumulator in
 Phase 2; slashing-reimbursement disbursement is Phase 3.
 
 When extending the reward sweep, **always update the conservation equation**

@@ -4,6 +4,9 @@ sidebar_label: Types
 
 # Protobuf Types
 
+**In one sentence:** the shapes of everything canoLiq keeps in state — globals, params,
+stakes, proposals, and the rest — as stored, not as sent in transactions.
+
 Stored types used by the canoLiq plugin.
 
 ## CanoliqGlobals
@@ -69,8 +72,8 @@ message CanoliqParams {
   uint64 min_stake_to_propose = 23;      // Default 1_000_000 (1 CPLQ)
   // T1 — per-action governance tiers (override the scalar knobs above)
   repeated GovernanceTier governance = 24;
-  // T3 — TVL deposit cap
-  uint64 tvl_cap_ucnpy = 25;             // 0 = uncapped
+  // T3 — TVL deposit cap, as a fraction of total Canopy stake
+  uint64 tvl_cap_bps = 25;               // Default 3300 (33% of Canopy stake); 0 = uncapped
   // T4 — insurance reserve target as a fraction of peak TVL
   uint64 insurance_target_bps = 26;      // Default 500 (5%); 0 disables the auto-off gate
   // T5 — autonomy-graduation thresholds

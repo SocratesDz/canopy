@@ -1,11 +1,16 @@
-# canoLiq v1.1 Release Plan
+# canoLiq v1.2 Release Plan
 
-This document supersedes `docs/plans/canoliq-implementation-plan.md` (written
-against the v2 spec) and absorbs the v1.1 spec audit in
-`docs/plans/canoliq-1-1-implementation_plan.md`. It reorganizes remaining work
-by **release target** — localnet, testnet, mainnet — rather than by the
-historical phase numbering, so it's clear at every point what blocks the next
-milestone.
+This is the master rollout plan, organized by **release target** — localnet,
+testnet, mainnet — rather than by historical phase numbering, so it's clear at
+every point what blocks the next milestone. It replaces the earlier v2-era
+implementation plan and spec-audit notes (removed; see git history).
+
+> **Status (2026-07):** the localnet and testnet feature tracks (F1–F15,
+> T1–T6) and the v1.2 spec-alignment work (`tvl_cap_bps`, restaking policy)
+> have **landed on `main`**. Remaining work is the mainnet **M-track** plus the
+> operational testnet run-through tracked in
+> `docs/canoliq-testnet-deployment-readiness.md`. Individual checkboxes below
+> may lag this summary.
 
 ## Context
 
@@ -21,9 +26,9 @@ plugin (no Canopy core consensus changes). The plugin:
 - runs governance, buyback, treasury spend, and an HTTP query/alert
   surface inside the plugin process.
 
-**Spec source of truth:** `canoLiq_Whitepaper_v1.1.pdf` +
-`canoLiq_Tokenomics_v1.1.pdf` (May 2025). The earlier v2 draft is referenced
-only when describing what changed.
+**Spec source of truth:** `canoLiq_Whitepaper_v1.2.pdf` +
+`canoLiq_Tokenomics_v1.2.pdf` (captured in the `canoliq-papers` skill). Earlier
+drafts are referenced only when describing what changed.
 
 > **Known doc conflict — validator cliff (verified 2026-05-21):** Whitepaper
 > §5.2 mis-states the Validators & Infrastructure cliff as **6 months**.
@@ -35,7 +40,7 @@ only when describing what changed.
 > is authoritative over the whitepaper's §5.2 summary table.
 
 **Vesting `Duration` interpretation (resolved with user):** Duration columns
-in v1.1 mean **total span including cliff**. So `cliffMonths + vestMonths`
+in v1.2 mean **total span including cliff**. So `cliffMonths + vestMonths`
 must equal the documented duration.
 
 ---
@@ -51,7 +56,7 @@ remaining work are:
 - **Plugin handshake & live reward sweep** — verified in
   `.docker/compose.yaml`. Reward inflow reconciles exactly across
   pool / treasury / insurance / validator-incentives / buyback per the
-  v1.1 fee math (WP §3.3–§4.3, Tokenomics §3). Re-verified live 2026-05-21
+  v1.2 fee math (WP §3.3–§4.3, Tokenomics §3). Re-verified live 2026-05-21
   at cumulative R = 216 M uCNPY with the corrected 5 % insurance skim
   (see Localnet L1 verification).
 - **Tx surface** covers Phase 1 (deposit / redeem / claim / cplq-transfer /
@@ -84,9 +89,9 @@ Two non-obvious constraints surfaced live and must not regress:
    (`bootstrapGenesisIfNeeded` in `canoliq.go`, reading
    `Config.GenesisPath`).
 
-## Spec evolution v2 → v1.1 (what changed)
+## Spec evolution v2 → v1.2 (what changed)
 
-| Area | v2 (old) | v1.1 (new) |
+| Area | v2 (old) | v1.2 (new) |
 |------|----------|------------|
 | Canopy 5 % DAO tax | "Canopy takes 5 % on-chain prior to committee distribution" | **Removed.** WP §3.3 — "Canopy does NOT apply a protocol-level DAO tax on top of rewards before distribution." |
 | Founders vesting | "3-yr vest, 6–12 mo cliff" | **4-yr linear, 12-mo cliff** |
@@ -102,7 +107,7 @@ Two non-obvious constraints surfaced live and must not regress:
 | Fee split (40/30/15/15) | same | same — no change |
 | Default fee (12 %) | same | same — no change |
 
-Production reward / fee code is already correct under v1.1 (it operates on
+Production reward / fee code is already correct under v1.2 (it operates on
 inflows as-received with no `0.95X` factor). The remaining gaps are in
 genesis numbers, doc/test narrative, governance richness, vote-escrow, caps,
 and autonomy.
@@ -112,30 +117,30 @@ and autonomy.
 # Localnet release
 
 Localnet release = "the docker-compose chain reconciles exactly against the
-v1.1 spec." Everything here is small in code-cost; the point is to get the
+v1.2 spec." Everything here is small in code-cost; the point is to get the
 on-chain numbers right and remove every trace of v2 from the docs/tests.
 
-## L1. v1.1 numeric corrections (audit Wave 1)
+## L1. v1.2 numeric corrections (audit Wave 1)
 
 Genesis JSON + one validator path. All P0 blocking spec violations. ~1 day.
 
 - [x] **F1.** `plugin/go/canoliq/genesis.localnet.json:6-8` and
       `genesis.testnet.json:6-9` — validator vesting `cliffMonths: 6,
       vestMonths: 24` → `cliffMonths: 12, vestMonths: 24` (Tokenomics
-      v1.1 §2.1: 3-yr linear, 12-mo cliff).
+      v1.2 §2.1: 3-yr linear, 12-mo cliff).
 - [x] **F2.** `genesis.localnet.json:55-56` and `genesis.testnet.json:56-57`
       — founders `cliffMonths: 12, vestMonths: 24` → `cliffMonths: 12,
-      vestMonths: 36` (Tokenomics v1.1 §2.5: 4-yr linear, 12-mo cliff).
+      vestMonths: 36` (Tokenomics v1.2 §2.5: 4-yr linear, 12-mo cliff).
 - [x] **F3.** `genesis.localnet.json:67-68` and `genesis.testnet.json:68-69`
       — strategic partners `cliffMonths: 6, vestMonths: 18` → `cliffMonths:
-      6, vestMonths: 12` (Tokenomics v1.1 §2.6 summary table: 18-mo total
+      6, vestMonths: 12` (Tokenomics v1.2 §2.6 summary table: 18-mo total
       span; under "Duration includes cliff" reading the current code is
       wrong).
 - [x] **F4.** `plugin/go/canoliq/config.go::ValidateParams` (~line 243)
       currently only rejects `FeeBps > 10_000`. Add `if p.FeeBps < 500 ||
       p.FeeBps > 2000 { return ErrInvalidParams() }`. Any `param-change`
       proposal violating this must fail validation, not pass through.
-      (Tokenomics v1.1 §3.3 / WP §4.1: 5 %–20 %.)
+      (Tokenomics v1.2 §3.3 / WP §4.1: 5 %–20 %.)
 - [x] **F5.** `config.go:219` `InsuranceBps: 1500 → 500` (matches the "5 %
       of DAO treasury inflow" reading of Tokenomics §8). Track the
       5 %-of-peak-TVL *cap* as a peak-TVL tracker in **T4** (testnet wave);
@@ -153,7 +158,7 @@ Genesis JSON + one validator path. All P0 blocking spec violations. ~1 day.
       cumulative R = 216 M-uCNPY inflow reconciles exactly —
       pool 200.448 M / treasury-net 7.3872 M / insurance 0.3888 M /
       buyback 3.888 M / validators 3.888 M (Σ = 216 M). Insurance is the
-      v1.1 5 %-of-treasury skim (388 800), **not** the old 15 % (1 166 400).
+      v1.2 5 %-of-treasury skim (388 800), **not** the old 15 % (1 166 400).
       Param-change bound: the F4 5 %–20 % rejection is **not** enforced at
       `CheckTx` — `CheckMessageCPLQProposalCreate` is stateless and never
       unpacks the param payload. `ValidateParams` (rejecting FeeBps 2500)
@@ -165,10 +170,10 @@ Genesis JSON + one validator path. All P0 blocking spec violations. ~1 day.
 ## L2. Doc / narrative cleanup (audit Wave 2)
 
 No behaviour change; removes the v2 "0.95 X Canopy pre-cut" narrative that
-will otherwise contradict every line of v1.1 doc anyone reads.
+will otherwise contradict every line of v1.2 doc anyone reads.
 
 - [x] **F6.** Rewrite `plugin/go/canoliq/AGENTS.md:101-116` (the
-      "Whitepaper §7 reconciliation" section) to describe the v1.1 model:
+      "Whitepaper §7 reconciliation" section) to describe the v1.2 model:
       canoLiq receives `R` directly from committee distribution, applies
       12 % fee on `R`, user yield = `0.88 × R`. Update test comments in
       `canoliq_test.go:258, 265, 288` and `rpc_test.go:133` to drop the
@@ -177,15 +182,15 @@ will otherwise contradict every line of v1.1 doc anyone reads.
       than "given gross X = 1053 with 0.95X reaching the pool").
 - [x] **F14.** Rename genesis bucket `"Plugin & Dev Grants"` → `"Developer
       Grants & Ecosystem"` in `genesis.localnet.json:78`,
-      `genesis.testnet.json:79` (Tokenomics v1.1 §6).
+      `genesis.testnet.json:79` (Tokenomics v1.2 §6).
 - [x] **F15.** Rename `"Liquidity Incentives (Farming)"` → `"Liquidity
       Incentives"` in `genesis.localnet.json:17`, `genesis.testnet.json:18`
-      (v1.1 drops the "(Farming)" suffix).
+      (v1.2 drops the "(Farming)" suffix).
 
 ### L2 verification
 - [x] `cd plugin/go && go test ./canoliq/...` — nothing should reference
       the old bucket names by string match. (README production-template
-      block also updated to v1.1 vesting numbers + new bucket names.)
+      block also updated to v1.2 vesting numbers + new bucket names.)
 
 ## L3. Per-address collection indexes (Phase 3 §1.1-bis carryover)
 
@@ -237,7 +242,7 @@ there is no per-address index that names those records. This blocks the
 ## Localnet exit criteria
 - [x] L1 + L2 + L3 all landed and tested.
 - [x] `.docker/compose.yaml` chain reconciles its reward inflow against
-      v1.1 fee math. **Verified live 2026-05-21** (cumulative R = 216 M
+      v1.2 fee math. **Verified live 2026-05-21** (cumulative R = 216 M
       uCNPY; 5 % insurance skim confirmed; conservation exact).
 - [x] `/v1/account/{addr}` returns redemption + unstake collections.
 - [x] No production-path file references "0.95 X" or "DAO 5 % pre-cut" or
@@ -251,13 +256,13 @@ there is no per-address index that names those records. This blocks the
 
 # Testnet release
 
-Testnet release = "the v1.1 spec is enforced end-to-end with safety rails
+Testnet release = "the v1.2 spec is enforced end-to-end with safety rails
 and an alert surface." Features here are net-new behaviour that earlier
 audits and the old plan deferred. Multi-week.
 
 ## T1. Per-action governance matrix (audit F7 + F12 + F13)
 
-Adds a 7-row per-action matrix from Tokenomics v1.1 §7 on top of today's
+Adds a 7-row per-action matrix from Tokenomics v1.2 §7 on top of today's
 one-size-fits-all `quorum_bps / pass_threshold_bps / timelock_blocks`
 (kept as the fallback — see Proto + state). F12 (validator ejection) and
 F13 (emergency fast-track) fall out for free once T1 is in.
@@ -337,7 +342,7 @@ checked items below for the as-built notes.
 
 ## T2. Vote-escrow lock multipliers (audit F8)
 
-Tokenomics v1.1 §4.2:
+Tokenomics v1.2 §4.2:
 
 | Lock | Voting × | Reward boost |
 |---|---|---|
@@ -397,7 +402,7 @@ Tokenomics v1.1 §4.2:
 
 ## T3. TVL self-cap (audit F9)
 
-WP v1.1 §9.4: "canoLiq will self-impose a TVL cap of 33 % of total Canopy
+WP v1.2 §9.4: "canoLiq will self-impose a TVL cap of 33 % of total Canopy
 network stake pending ecosystem maturation and governance approval to lift
 this cap."
 
@@ -406,20 +411,26 @@ helper. Two options; recommend the second for speed:
 
 - (a) plumb a new `GetTotalNetworkStake` request from plugin → FSM
       (Canopy-side change, slow);
-- (b) add `tvl_cap_uCnpy` to `CanoliqParams`, governance-tunable, and have
-      the DAO update it as Canopy stake grows.
+- (b) add a governance-tunable cap to `CanoliqParams` and have the DAO update
+      it as Canopy stake grows.
 
-**Status: landed and tested (2026-05-25).** Took option (b) — a
-governance-tunable `tvl_cap_ucnpy` param. Full suite green.
+**Status: landed and tested (2026-05-25); superseded by v1.2 spec-alignment.**
+Took option (b). The cap first shipped as an absolute `tvl_cap_ucnpy` param, then
+the v1.2 spec-alignment work **renamed it to `tvl_cap_bps`** — a fraction of
+total Canopy stake (default **3300** = 33%), matching WP §9.4. The current
+field is `tvl_cap_bps` on `main`.
 
 ### Behaviour
-- [x] `CanoliqParams.tvl_cap_ucnpy uint64` (proto field 25; 0 = uncapped;
-      default 0). No `ValidateParams` rule needed — uint64 can't be negative.
+- [x] `CanoliqParams.tvl_cap_bps uint64` (proto field 25; default 3300 = 33% of
+      total Canopy stake; 0 = uncapped). The effective absolute ceiling is
+      `mulDiv(canopy_total_stake, tvl_cap_bps, 10_000)`.
 - [x] `DeliverMessageCanoliqDeposit` rejects with `ErrTVLCapExceeded` when
       `cap > 0 && total_pooled_cnpy + amount > cap`. (Deliver-only; CheckTx is
       stateless.)
-- [x] `/v1/health` (`HealthView` / `QueryHealth`) surfaces `tvlCapUcnpy` and
-      `tvlUtilizationBps` (= pooled / cap in bps; 0 when uncapped).
+- [x] `/v1/health` (`HealthView` / `QueryHealth`) surfaces `tvlCapBps`, the
+      derived `tvlCapUcnpyEffective` (= `mulDiv(canopyTotalStake, tvlCapBps,
+      10_000)`), `tvlUtilizationBps`, and a `tvlCapStatus` string
+      (uncapped / active / awaiting-canopy-stake / fail-closed).
 
 ### T3 tests (`t3_tvlcap_test.go`)
 - [x] Deposit at exactly cap accepted, one uCNPY above rejected with state
@@ -430,7 +441,7 @@ governance-tunable `tvl_cap_ucnpy` param. Full suite green.
 
 ## T4. Insurance fund peak-TVL tracking (audit F10)
 
-Continuous skim is in (post-F5). The v1.1 spec also requires a target of
+Continuous skim is in (post-F5). The v1.2 spec also requires a target of
 **5 % of peak TVL** within 12 months of mainnet. Implement as a periodic
 gate: once reserve ≥ 5 % of peak TVL, the skim turns off until peak TVL
 grows past the next threshold.
@@ -665,7 +676,7 @@ for mainnet so DAO mispricing is impossible.
 
 ## M5. Operational sign-off
 
-- [ ] Security audit covering the full v1.1 governance / staking / buyback
+- [ ] Security audit covering the full v1.2 governance / staking / buyback
       / treasury surface (T1 + T2 + M4 are highest risk).
 - [ ] Bug bounty program (WP §9.1). Operational only — link from
       `README.md`.
@@ -674,7 +685,7 @@ for mainnet so DAO mispricing is impossible.
       new-L1 genesis, deprecate committee.
 - [ ] Live mainnet bring-up plan: validator opt-in list, initial
       `multisig_signers`, initial `MessageSubsidy` size, initial
-      `tvl_cap_ucnpy`.
+      `tvl_cap_bps`.
 
 ## Mainnet exit criteria
 - [ ] M1 + M2 + M3 + M4 + M5 landed.
@@ -693,7 +704,7 @@ for mainnet so DAO mispricing is impossible.
 |---|---|
 | Genesis numeric values | `plugin/go/canoliq/genesis.localnet.json`, `genesis.testnet.json` |
 | Param defaults & validation | `plugin/go/canoliq/config.go` (`DefaultParams`, `ValidateParams`) |
-| Reward math (already correct under v1.1) | `plugin/go/canoliq/reward.go`, `fee.go` |
+| Reward math (already correct under v1.2) | `plugin/go/canoliq/reward.go`, `fee.go` |
 | Doc / test narrative | `plugin/go/canoliq/AGENTS.md`, `canoliq_test.go`, `rpc_test.go` |
 | Governance proposal handling | `plugin/go/canoliq/governance.go`, `treasury.go`, `proto/canoliq.proto` |
 | Staking & voting weight (T2 multipliers land here) | `plugin/go/canoliq/stake.go`, `governance.go::voteWeightFor` |
