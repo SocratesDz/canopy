@@ -10,7 +10,7 @@ governance token. If you want the friendly version first, read
 
 ## cCNPY — Liquid Staking Receipt
 
-cCNPY is minted 1:1 against deposited CNPY at the current exchange rate. It represents the holder's share of the total pooled CNPY backing.
+cCNPY is minted against deposited CNPY at the **current exchange rate** — the very first deposit is 1:1, and thereafter the amount minted reflects how much CNPY already backs each cCNPY. It represents the holder's share of the total pooled CNPY backing.
 
 - **Minting**: Users deposit CNPY via `MessageCanoliqDeposit`, receiving cCNPY at the current rate
 - **Redemption**: Users burn cCNPY via `MessageCanoliqRedeem`, queuing a CNPY redemption

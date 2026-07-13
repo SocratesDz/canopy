@@ -1,6 +1,6 @@
 // canoliqctl is a small CLI for building, signing, and submitting canoLiq
-// plugin transactions to a running Canopy node. It targets the Phase 1.5
-// verification matrix in docs/plans/canoliq-implementation-plan.md.
+// plugin transactions to a running Canopy node. Remaining rollout work is
+// tracked in docs/plans/canoliq-release-plan.md.
 //
 // Each subcommand fetches the signer's BLS key from the node's admin keystore,
 // constructs the canoliq message proto, signs it with deterministic bytes that

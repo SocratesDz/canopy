@@ -175,7 +175,7 @@ with drift / under-min / over-max flags so operators can react manually.
 `ACTION_PROTOCOL_UPGRADE` for live policy enforcement, `canoliqctl
 restaking-status`, multi-committee fakeStore reward-skew assertion.
 
-### Final verification + closure 🟡 partly landed, closure-appendix uncommitted
+### Final verification + closure ✅ landed on `main`
 - [x] `cd plugin/go && go vet ./canoliq/...` clean (verified after every phase)
 - [x] `cd plugin/go && go test ./canoliq/... ./canoliqctl/... ./contract/...`
       green (verified after every phase)
@@ -191,9 +191,9 @@ restaking-status`, multi-committee fakeStore reward-skew assertion.
       across overlapping committees); stuck-redemption index entry is
       written by the redeem path. Workstream-2 of the readiness doc
       still owns the cross-process smoke on a real compose image.
-- [x] Appendix to `docs/canoliq-whitepaper-tokenomics-discrepancies.md`
-      noting Whitepaper §7 and §9.4 implementation gaps closed
-      — commit `dceb8884`.
+- [x] Recorded that the Whitepaper §7 and §9.4 implementation gaps were
+      closed (commit `dceb8884`). The standalone discrepancy report that held
+      this appendix has since been removed — see git history.
 
 ---
 
@@ -442,9 +442,9 @@ Plan touches these (representative; not exhaustive):
    doc): deposit, redeem, observe `/v1/restaking` and
    `/v1/health.tvl_cap_ucnpy_effective`.
 6. Whitepaper §7 and §9.4 phrasing left unchanged; the code now matches.
-7. Update `docs/canoliq-whitepaper-tokenomics-discrepancies.md` with a
-   "v1.2 → code alignment closure" appendix noting the two implementation gaps
-   closed.
+7. Recorded the "v1.2 → code alignment closure" for the two implementation gaps
+   (originally appended to the standalone discrepancy report, which has since
+   been removed — see git history).
 
 ## Sequencing recommendation
 

@@ -34,7 +34,7 @@ Implemented on `feature/security-review`; `go test ./canoliq/... ./canoliqctl/..
 | H2 | ✅ resolved | Investigation only — `fsm/state.go` passthrough confirmed; informs H1. |
 | M1 | ✅ remediated | Boosted `boostedStakeTotal()` snapshot as quorum/turnout denominator; per-proposal turnout clamped ≤10000 bps. |
 | M2 | ✅ remediated | `SafetyCheck` fails closed when `redemptionUnstakingBlocks < 1000` on testnet/mainnet. (Reading live `valParams.UnstakingBlocks` remains a longer-term TODO.) |
-| M3 | ⏭️ deferred | Already implemented on `canoliq-spec-alignment`; skipped here to avoid a merge conflict. |
+| M3 | ✅ landed on `main` | The percentage TVL cap (`tvl_cap_bps`, default 3300 = 33% of Canopy stake) shipped via the v1.2 spec-alignment work. |
 | M4 | ✅ remediated | `maxLazyDrainPerBlock = 16` caps EndBlock lazy-query drain. |
 | M5 | ✅ remediated | +1 virtual-shares offset in `computeMint`/`computeRedeem`; no-rounding-profit property test. |
 | L1 | ✅ remediated | `ValidateParams` rejects `MultisigThreshold == 0` when signers are configured; test. |

@@ -4,7 +4,19 @@ sidebar_label: Proposal Types
 
 # Proposal Types
 
-canoLiq supports three proposal types, each carried as a `google.protobuf.Any` payload.
+canoLiq supports six proposal types, each carried as a `google.protobuf.Any` payload. The
+payload determines the proposal's `ActionType`, which in turn selects its
+[governance tier](./governance-tiers.mdx) (quorum, approval threshold, timelock, voting
+period):
+
+| Payload | ActionType | What it does |
+|---------|------------|--------------|
+| `ProposalParamChange` | `ACTION_FEE_CHANGE` | Replace the full `CanoliqParams` set |
+| `ProposalBuyback` | `ACTION_UNKNOWN` → scalar fallback tier | Authorize one buyback execution |
+| `ProposalTreasurySpend` | `ACTION_TREASURY_SPEND_SMALL`, or `_LARGE` for CPLQ spends over 1M CPLQ | Transfer from a treasury bucket |
+| `ProposalValidatorEject` | `ACTION_VALIDATOR_EJECT` | Remove a validator from the registry |
+| `ProposalEmergency` | `ACTION_EMERGENCY` | Fast-track action with an optional param diff |
+| `ProposalProtocolUpgrade` | `ACTION_PROTOCOL_UPGRADE` | Signal a target protocol version |
 
 ## Param Change
 
@@ -55,12 +67,48 @@ message ProposalTreasurySpend {
 - Below `treasury_threshold`: Executes directly
 - Above threshold: Requires timelock + multisig approvals
 
-## Creating a Proposal
+## Validator Eject
+
+Removes a validator from the canoLiq `ValidatorRegistry` (idempotent — clears its incentive
+accrual on dispatch):
+
+```protobuf
+message ProposalValidatorEject {
+  bytes validator_address = 1;  // 20-byte address to remove
+}
+```
+
+## Emergency
+
+A fast-tracked action (tighter voting period per its tier) with an optional parameter change
+applied immediately on pass:
+
+```protobuf
+message ProposalEmergency {
+  string description = 1;              // human-readable rationale
+  ProposalParamChange param_change = 2; // optional CanoliqParams replacement
+}
+```
+
+## Protocol Upgrade
+
+Signals a target protocol version with an opaque upgrade descriptor:
+
+```protobuf
+message ProposalProtocolUpgrade {
+  string version = 1;  // target version string
+  bytes payload = 2;   // opaque upgrade descriptor
+}
+```
+
+## Creating and Voting on a Proposal
+
+Once a proposal exists, cast votes with:
 
 ```bash
 canoliqctl vote <address> <proposal-id> yes
 ```
 
 :::note
-`proposal-create` is intentionally not yet wired as a standalone CLI command. Its payload is a `google.protobuf.Any` carrying one of three sub-types, each with a distinct argument surface. Construct proposals via in-process tests or hand-built JSON.
+`proposal-create` is intentionally not yet wired as a standalone CLI command. Its payload is a `google.protobuf.Any` carrying one of the six sub-types above, each with a distinct argument surface. Construct proposals via in-process tests or hand-built JSON.
 :::

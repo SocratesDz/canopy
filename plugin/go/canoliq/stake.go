@@ -30,7 +30,7 @@ const blocksPerMonth = 432_000
 const blocksPerDay = 14_400
 
 // tierMultipliers returns the voting multiplier (in bps, 10000 = 1×) and the
-// reward-share boost (in bps) for a lock tier (Tokenomics v1.1 §4.2).
+// reward-share boost (in bps) for a lock tier (Tokenomics v1.2 §4.2).
 //
 //	tier      voting×   reward boost
 //	NONE      1.0×      base

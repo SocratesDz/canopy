@@ -5,6 +5,16 @@ const sidebars: SidebarsConfig = {
     'intro',
     {
       type: 'category',
+      label: 'Start Here',
+      link: {type: 'doc', id: 'start-here/what-is-canopy'},
+      items: [
+        'start-here/what-is-canopy',
+        'start-here/what-is-liquid-staking',
+        'start-here/reading-guide',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Core Concepts',
       link: {type: 'doc', id: 'concepts/how-it-works'},
       items: [

@@ -261,8 +261,8 @@ func (c Config) SafetyCheck() error {
 
 // DefaultParams returns the canonical canoLiq fee/split parameters from the
 // whitepaper: 12% protocol fee with a 40/30/15/15 split. Phase 2 governance
-// defaults (voting period, quorum, multisig, etc.) are pinned in the plan
-// at docs/plans/canoliq-implementation-plan.md.
+// defaults (voting period, quorum, multisig, etc.) follow the canoLiq v1.2
+// papers (see the canoliq-papers skill).
 func DefaultParams() *contract.CanoliqParams {
 	return &contract.CanoliqParams{
 		FeeBps:             1200,
@@ -314,7 +314,7 @@ const (
 )
 
 // defaultGovernanceTiers returns the 7-row per-action governance matrix from
-// Tokenomics v1.1 §7. quorum/approval are in bps; voting/timelock in blocks.
+// Tokenomics v1.2 §7. quorum/approval are in bps; voting/timelock in blocks.
 // Non-emergency actions use the standard 7-day voting window; the emergency
 // tier uses a 24h fast-track vote with zero timelock (F13).
 func defaultGovernanceTiers() []*contract.GovernanceTier {

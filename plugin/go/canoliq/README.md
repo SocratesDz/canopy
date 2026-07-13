@@ -8,8 +8,13 @@ and tracks CPLQ — the fixed-supply (100M) governance token — with cliff +
 linear-vesting schedules.
 
 The plugin is a sibling of `plugin/go/contract/`; it reuses the proto types
-generated in `contract` package and runs its own FSM connection. See the full
-implementation plan at `docs/plans/canoliq-implementation-plan.md`.
+generated in `contract` package and runs its own FSM connection.
+
+> **New to Canopy or liquid staking?** The conceptual reference — what canoLiq
+> is, how the tokens and governance work, and the full API — lives in the
+> documentation site under `docs/canoliq-site/` (run `yarn start` there, or read
+> the `.mdx` sources directly). This README is the operator/developer runbook.
+> Remaining roadmap work is tracked in `docs/plans/canoliq-release-plan.md`.
 
 ## Deployment profiles
 
@@ -994,7 +999,7 @@ export CANOLIQCTL_PASSWORD=hunter2
 Phase 2 commands (governance, staking, buyback, treasury):
 
 ```bash
-./canoliqctl cplq-stake          alice 5000000
+./canoliqctl cplq-stake          alice 5000000              # optional: --lock <none|3m|6m|12m|24m>
 ./canoliqctl cplq-unstake        alice 1000000
 ./canoliqctl cplq-claim-unstake  alice 0
 ./canoliqctl vote                alice <proposal-id> yes
@@ -1005,11 +1010,21 @@ Phase 2 commands (governance, staking, buyback, treasury):
 ./canoliqctl cplq-claim-vested   alice
 ```
 
+The optional `--lock <tier>` on `cplq-stake` commits the stake to a vote-escrow
+lock (`3m`/`6m`/`12m`/`24m`, default `none`), raising its voting multiplier (up
+to 4×) and buyback reward boost. Locks only ever strengthen on re-stake, and the
+stake cannot be unstaked until its lock height. See the docs site
+(`docs/canoliq-site/docs/tokenomics/vote-escrow.mdx`) for the multiplier table.
+
 ### Creating proposals
 
-`proposal-create` dispatches `MessageCPLQProposalCreate` with one of three
-`google.protobuf.Any` payload types. The proposer must hold ≥
-`min_stake_to_propose` CPLQ at creation height.
+`proposal-create` dispatches `MessageCPLQProposalCreate` with a
+`google.protobuf.Any` payload. The CLI wires five payload types
+(`param-change`, `buyback`, `treasury-spend`, `validator-eject`, `emergency`);
+a sixth, `ProposalProtocolUpgrade`, is defined in proto but not yet exposed as a
+CLI subcommand. The proposal's payload determines its governance
+[action type / tier](../../../docs/canoliq-site/docs/governance/governance-tiers.mdx).
+The proposer must hold ≥ `min_stake_to_propose` CPLQ at creation height.
 
 ```bash
 # 1. Param change — full-set CanoliqParams replacement (loaded from JSON)
@@ -1025,6 +1040,16 @@ Phase 2 commands (governance, staking, buyback, treasury):
 ./canoliqctl proposal-create treasury-spend alice 0xabc...123 50000000 cnpy \
     --description "infrastructure grant"
 # args: recipient-hex  amount  denomination (cnpy|cplq)
+
+# 4. Validator eject — remove a validator from the committee registry (F12)
+./canoliqctl proposal-create validator-eject alice 0xdef...456 \
+    --description "eject unresponsive validator"
+# args: validator-hex
+
+# 5. Emergency — security-critical fast-track action with optional param diff (F13)
+./canoliqctl proposal-create emergency alice ./emergency-params.json \
+    --description "freeze deposits pending investigation"
+# args: optional params-json-file (omit for a signalling-only emergency)
 ```
 
 The `param-change` JSON file uses the same shape as the `params` block
@@ -1255,6 +1280,7 @@ Snapshot-served (sub-millisecond, stale by ≤1 block):
 | `/v1/validators` | `ValidatorRegistry` (committee snapshot used for pro-rata) |
 | `/v1/stakers` | `{stakers: [{address, amount, stakedAtHeight}]}` from `CPLQStakeIndex` |
 | `/v1/graduation` | five autonomy-graduation metrics + composite `eligible` (T5) |
+| `/v1/restaking` | per-Canopy-committee restaking policy + observed exposure + drift/compliance |
 
 Lazy-fulfilled per-address (latency: up to one block ≈ 6s on localnet):
 

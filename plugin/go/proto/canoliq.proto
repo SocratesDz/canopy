@@ -162,7 +162,7 @@ message CanoliqParams {
   uint64 claim_fee = 8; // @gotags: json:"claimFee"
   // cplq_transfer_fee: minimum tx fee for a CPLQ transfer (uCNPY)
   uint64 cplq_transfer_fee = 9; // @gotags: json:"cplqTransferFee"
-  // insurance_bps: share of treasury credit redirected to insurance (default 1500 = 15% of treasury slice)
+  // insurance_bps: share of treasury credit redirected to insurance (default 500 = 5% of treasury slice)
   uint64 insurance_bps = 10; // @gotags: json:"insuranceBps"
   // treasury_threshold: spend amount above which multisig + timelock kick in (uCNPY-equivalent)
   uint64 treasury_threshold = 11; // @gotags: json:"treasuryThreshold"
@@ -190,7 +190,7 @@ message CanoliqParams {
   uint64 multisig_approve_fee = 22; // @gotags: json:"multisigApproveFee"
   // min_stake_to_propose: minimum staked CPLQ a proposer must hold
   uint64 min_stake_to_propose = 23; // @gotags: json:"minStakeToPropose"
-  // governance: per-action governance tiers (Tokenomics v1.1 §7). When a
+  // governance: per-action governance tiers (Tokenomics v1.2 §7). When a
   // tier matches a proposal's ActionType it overrides the scalar
   // quorum_bps / pass_threshold_bps / timelock_blocks / voting_period_blocks
   // above; an empty list (or unmatched action) falls back to those scalars.
@@ -254,7 +254,7 @@ message RestakingPolicyEntry {
 
 // ActionType classifies a proposal so per-action governance tiers can apply
 // distinct quorum / approval / timelock / voting-period rules (Tokenomics
-// v1.1 §7). Inferred from the proposal payload at creation time.
+// v1.2 §7). Inferred from the proposal payload at creation time.
 enum ActionType {
   ACTION_UNKNOWN = 0;
   ACTION_FEE_CHANGE = 1;
@@ -375,7 +375,7 @@ message MessageMultisigApprove {
 }
 
 // LockTier is the vote-escrow lock duration a staker commits to (Tokenomics
-// v1.1 §4.2). Longer locks grant a higher voting multiplier and reward boost.
+// v1.2 §4.2). Longer locks grant a higher voting multiplier and reward boost.
 enum LockTier {
   LOCK_NONE = 0;
   LOCK_3M = 1;
