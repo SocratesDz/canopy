@@ -6,15 +6,22 @@ import (
 	"github.com/canopy-network/go-plugin/contract"
 )
 
-// ProcessRewards is the EndBlock hook that observes the canoLiq committee
-// reward pool, isolates this block's reward delta against the last sweep,
-// and applies the 12% protocol fee with the canonical 40/30/15/15 split.
+// ProcessRewards is the EndBlock hook that observes canoLiq's received
+// committee reward and applies the 12% protocol fee with the canonical
+// 40/30/15/15 split.
 //
-// The committee pool is the same Canopy pool key used for transaction fees
-// (KeyForFeePool(chainId)), since Canopy mints subsidies into that pool.
-// To avoid double-counting fee revenue from canoLiq's own fee_pool
-// accumulation, the function compares the pool against
-// last_processed_reward_pool stored on globals and only sweeps the delta.
+// Observation source — canoLiq's committee stake, NOT the committee fee pool.
+// Canopy funds the committee reward pool (KeyForFeePool(chainId)) in BeginBlock
+// and then fully distributes + zeroes it in EndBlock's DistributeCommitteeRewards,
+// which runs *before* this plugin EndBlock hook. So the pool is always 0 by the
+// time we look — it cannot be swept. Instead, Canopy compounds each block's
+// committee reward into the bonded StakedAmount of the committee's validators
+// (DistributeCommitteeReward, Compound=true). We therefore observe the
+// block-over-block growth of canoLiq's committee validator stake (summed from
+// the ValidatorRegistry) as the received reward R, and store the last observed
+// aggregate in globals.last_processed_reward_pool (repurposed to mean "last
+// observed committee stake"). canoLiq's own protocol tx-fees are tracked
+// separately in KeyForTxFeeAccrual and route straight to the DAO treasury.
 func (c *Canoliq) ProcessRewards(req *contract.PluginEndRequest) *contract.PluginError {
 	params, err := c.LoadParams()
 	if err != nil {
@@ -24,13 +31,11 @@ func (c *Canoliq) ProcessRewards(req *contract.PluginEndRequest) *contract.Plugi
 		return nil
 	}
 	globalsKey := KeyForGlobals()
-	poolKey := contract.KeyForFeePool(c.Config.ChainId)
 	escrowKey := KeyForEscrowPool()
-	gQ, pQ, eQ := qid(), qid(), qid()
+	gQ, eQ := qid(), qid()
 	resp, err := c.plugin.StateRead(c, &contract.PluginStateReadRequest{
 		Keys: []*contract.PluginKeyRead{
 			{QueryId: gQ, Key: globalsKey},
-			{QueryId: pQ, Key: poolKey},
 			{QueryId: eQ, Key: escrowKey},
 		},
 	})
@@ -41,7 +46,6 @@ func (c *Canoliq) ProcessRewards(req *contract.PluginEndRequest) *contract.Plugi
 		return resp.Error
 	}
 	globals := new(contract.CanoliqGlobals)
-	pool := new(contract.Pool)
 	escrow := new(contract.Pool)
 	for _, r := range resp.Results {
 		if len(r.Entries) == 0 {
@@ -50,10 +54,6 @@ func (c *Canoliq) ProcessRewards(req *contract.PluginEndRequest) *contract.Plugi
 		switch r.QueryId {
 		case gQ:
 			if e := contract.Unmarshal(r.Entries[0].Value, globals); e != nil {
-				return e
-			}
-		case pQ:
-			if e := contract.Unmarshal(r.Entries[0].Value, pool); e != nil {
 				return e
 			}
 		case eQ:
@@ -66,28 +66,35 @@ func (c *Canoliq) ProcessRewards(req *contract.PluginEndRequest) *contract.Plugi
 		// Genesis has not run yet; nothing to do.
 		return nil
 	}
-	if pool.Amount <= globals.LastProcessedRewardPool {
-		// No fresh reward delta this block. Still advance the peak-TVL high
-		// water mark (T4) — also seeds it from the current pool on a pre-T4
-		// node whose peak_tvl_ucnpy is still zero.
+	// Sum the live Canopy stake of canoLiq's committee validators.
+	observedStake, err := c.observedCommitteeStake()
+	if err != nil {
+		return err
+	}
+	baseline := globals.LastProcessedRewardPool
+	// Seed-and-return when there is no positive growth to distribute:
+	//   - baseline == 0: the first observation (fresh node / post-upgrade).
+	//     Adopt the current stake as the baseline so pre-existing bonded stake
+	//     is not mistaken for one giant reward on the next block.
+	//   - observedStake <= baseline: an unstake / slash shrank the position, so
+	//     there is no reward this block. Reset the baseline so growth resumes
+	//     cleanly from the new (lower) level.
+	// Either branch still advances the peak-TVL high-water mark (T4).
+	if baseline == 0 || observedStake <= baseline {
 		if globals.TotalPooledCnpy > globals.PeakTvlUcnpy {
 			globals.PeakTvlUcnpy = globals.TotalPooledCnpy
 		}
-		globals.LastProcessedRewardPool = pool.Amount
+		globals.LastProcessedRewardPool = observedStake
 		return c.SaveGlobals(globals)
 	}
-	delta := pool.Amount - globals.LastProcessedRewardPool
-	// L3: the committee pool grows from two sources — Canopy committee rewards
-	// and canoLiq's own protocol tx fees (every handler credits its fee here).
-	// Only the reward portion is subject to the 12% fee + 40/30/15/15 split; the
-	// accrued tx-fee portion is protocol revenue that routes straight to the DAO
-	// treasury (see the treasury credit below). Clamp guards a never-expected
-	// accrual > pool-growth case.
+	// rewardDelta is pure Canopy committee reward — the growth of the bonded
+	// committee stake since the last observation.
+	rewardDelta := observedStake - baseline
+	// L3: canoLiq's own protocol tx-fees accrue in their own scalar (every
+	// handler credits it) and route straight to the DAO treasury. They are
+	// protocol revenue, not committee reward, so they are NOT part of the 12%
+	// fee + 40/30/15/15 split applied to rewardDelta.
 	txFees := c.readScalar(KeyForTxFeeAccrual())
-	if txFees > delta {
-		txFees = delta
-	}
-	rewardDelta := delta - txFees
 	fee := FeeOnReward(rewardDelta, params.FeeBps)
 	netToUsers := rewardDelta - fee
 	split := SplitFee(fee, &FeeSplitParams{
@@ -105,27 +112,15 @@ func (c *Canoliq) ProcessRewards(req *contract.PluginEndRequest) *contract.Plugi
 		globals.PeakTvlUcnpy = globals.TotalPooledCnpy
 	}
 
-	// Drain the whole swept reward from the committee pool. Every slice now
-	// lives in a plugin-owned key: the user slice moves into the escrow pool
-	// (H1 — it backs cCNPY redemptions, kept distinct from this fee pool so it
-	// is not re-swept as reward next block); validator/treasury/buyback go to
-	// their own keys below.
-	if pool.Amount >= delta {
-		pool.Amount -= delta
-	} else {
-		pool.Amount = 0
-	}
 	// H1: credit the user slice into the escrow pool so cCNPY holders can
 	// redeem against real CNPY. Keeps escrow == TotalPooledCnpy + PendingRedemptionCnpy.
+	// (The reward CNPY itself lives in the bonded committee stake; escrow becomes
+	// a claim on it, redeemable once the position is unbonded.)
 	escrow.Amount += userSlice
-	// Record the post-sweep pool balance so the next block isolates only
-	// fresh subsidy/fee inflows as delta.
-	globals.LastProcessedRewardPool = pool.Amount
+	// Record the observed committee stake so the next block isolates only the
+	// fresh growth (reward) as delta.
+	globals.LastProcessedRewardPool = observedStake
 
-	poolBz, e := contract.Marshal(pool)
-	if e != nil {
-		return e
-	}
 	gBz, e := contract.Marshal(globals)
 	if e != nil {
 		return e
@@ -136,7 +131,6 @@ func (c *Canoliq) ProcessRewards(req *contract.PluginEndRequest) *contract.Plugi
 	}
 	sets := []*contract.PluginSetOp{
 		{Key: globalsKey, Value: gBz},
-		{Key: poolKey, Value: poolBz},
 		{Key: escrowKey, Value: escrowBz},
 	}
 	// Treasury & buyback go into plugin-owned scalar keys. WP §9.2 (slashing
@@ -197,6 +191,60 @@ func (c *Canoliq) ProcessRewards(req *contract.PluginEndRequest) *contract.Plugi
 	}
 	_ = req
 	return nil
+}
+
+// observedCommitteeStake sums the live Canopy StakedAmount of every canoLiq
+// committee validator listed in the ValidatorRegistry whose Committees include
+// this chain. Canopy compounds each block's committee reward into these bonded
+// positions, so the block-over-block growth of this sum is canoLiq's received
+// reward (see ProcessRewards). Returns 0 when the registry is empty/absent —
+// with no observable position there is no reward to distribute.
+func (c *Canoliq) observedCommitteeStake() (uint64, *contract.PluginError) {
+	registry, err := c.loadValidatorRegistry()
+	if err != nil {
+		return 0, err
+	}
+	if registry == nil || len(registry.Entries) == 0 {
+		return 0, nil
+	}
+	keys := make([]*contract.PluginKeyRead, 0, len(registry.Entries))
+	for _, e := range registry.Entries {
+		keys = append(keys, &contract.PluginKeyRead{QueryId: qid(), Key: contract.KeyForValidator(e.Address)})
+	}
+	resp, err := c.plugin.StateRead(c, &contract.PluginStateReadRequest{Keys: keys})
+	if err != nil {
+		return 0, err
+	}
+	if resp.Error != nil {
+		return 0, resp.Error
+	}
+	total := uint64(0)
+	for _, r := range resp.Results {
+		if len(r.Entries) == 0 {
+			continue
+		}
+		val := new(contract.Validator)
+		if e := contract.Unmarshal(r.Entries[0].Value, val); e != nil {
+			return 0, e
+		}
+		// Only count stake actually bonded to this committee — a validator that
+		// has left committee `chainId` no longer earns its reward here.
+		if !validatorOnCommittee(val, c.Config.ChainId) {
+			continue
+		}
+		total += val.StakedAmount
+	}
+	return total, nil
+}
+
+// validatorOnCommittee reports whether val is a member of the given committee.
+func validatorOnCommittee(val *contract.Validator, chainId uint64) bool {
+	for _, id := range val.Committees {
+		if id == chainId {
+			return true
+		}
+	}
+	return false
 }
 
 // readScalar is a small convenience for reading a uint64 stored under `key`,

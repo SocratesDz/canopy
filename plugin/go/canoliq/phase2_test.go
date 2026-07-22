@@ -683,7 +683,7 @@ func TestPerValidatorProRataDistribution(t *testing.T) {
 	seedParams(t, c, params)
 	g := &contract.CanoliqGlobals{GenesisComplete: true}
 	seedGlobals(s, g)
-	// Seed validator registry with 70/20/10 weights.
+	// Seed validator registry with 70/20/10 pro-rata weights.
 	v1, v2, v3 := addr20(0x01), addr20(0x02), addr20(0x03)
 	registry := &contract.ValidatorRegistry{Entries: []*contract.ValidatorRegistryEntry{
 		{Address: v1, Stake: 700},
@@ -691,10 +691,17 @@ func TestPerValidatorProRataDistribution(t *testing.T) {
 		{Address: v3, Stake: 100},
 	}}
 	s.set(KeyForValidatorRegistry(), mustMarshal(registry))
+	// Establish each validator's live committee stake at its weight (baseline
+	// sum = 1000), then compound X=1000 of reward into v1's position so the
+	// observed committee stake grows by exactly 1000.
+	setCommitteeStake(s, c, v1, 700)
+	setCommitteeStake(s, c, v2, 200)
+	setCommitteeStake(s, c, v3, 100)
+	g.LastProcessedRewardPool = 1000
+	seedGlobals(s, g)
+	setCommitteeStake(s, c, v1, 700+1000)
 
 	// Reward sweep with X=1000 → fee=120, validators=18.
-	pool := &contract.Pool{Id: c.Config.ChainId, Amount: 1000}
-	s.set(contract.KeyForFeePool(c.Config.ChainId), mustMarshal(pool))
 	if err := c.ProcessRewards(&contract.PluginEndRequest{Height: 1}); err != nil {
 		t.Fatalf("process rewards: %v", err)
 	}
@@ -723,9 +730,8 @@ func TestInsuranceConservationFullSplit(t *testing.T) {
 	c, s := newTestCanoliq()
 	g := &contract.CanoliqGlobals{GenesisComplete: true}
 	seedGlobals(s, g)
-	const X = 950 // post-DAO inflow
-	pool := &contract.Pool{Id: c.Config.ChainId, Amount: X}
-	s.set(contract.KeyForFeePool(c.Config.ChainId), mustMarshal(pool))
+	const X = 950 // committee reward received (observed as bonded-stake growth)
+	seedReward(t, s, c, X)
 
 	if err := c.ProcessRewards(&contract.PluginEndRequest{Height: 1}); err != nil {
 		t.Fatalf("process rewards: %v", err)
@@ -735,7 +741,7 @@ func TestInsuranceConservationFullSplit(t *testing.T) {
 	treasury := DecodeUint64(s.get(KeyForTreasuryCNPY()))
 	insurance := DecodeUint64(s.get(KeyForInsurancePool()))
 	buyback := DecodeUint64(s.get(KeyForBuybackPool()))
-	validators := DecodeUint64(s.get(KeyForValidatorIncentives(c.committeeAggregatorAddr())))
+	validators := readAllValidatorIncentives(s)
 	total := yield + treasury + insurance + buyback + validators
 	if total != X {
 		t.Errorf("conservation: yield %d + treasury %d + insurance %d + buyback %d + validators %d = %d, want %d",

@@ -139,8 +139,8 @@ func TestRPCParamsRoundTrip(t *testing.T) {
 
 func TestRPCPoolsConservationAfterReward(t *testing.T) {
 	srv, c, s, refresh := newTestRPC(t)
-	// Same setup pattern as TestWhitepaperSection7Reconciliation: fund the
-	// committee pool with canoLiq's received share R, run EndBlock (which
+	// Same setup pattern as TestWhitepaperSection7Reconciliation: observe
+	// canoLiq's received share R as committee-stake growth, run EndBlock (which
 	// applies the fee split AND refreshes the snapshot), then verify the
 	// HTTP /v1/pools view satisfies conservation. Non-round R=950 exercises
 	// truncation.
@@ -148,7 +148,7 @@ func TestRPCPoolsConservationAfterReward(t *testing.T) {
 	g := &contract.CanoliqGlobals{GenesisComplete: true}
 	s.set(KeyForGlobals(), mustMarshal(g))
 	s.set(KeyForParams(), mustMarshal(DefaultParams()))
-	s.set(contract.KeyForFeePool(2), mustMarshal(&contract.Pool{Id: 2, Amount: R}))
+	seedReward(t, s, c, R)
 
 	resp := c.EndBlock(&contract.PluginEndRequest{Height: 1})
 	if resp.Error != nil {

@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/canopy-network/go-plugin/contract"
@@ -82,6 +83,60 @@ func readCcnpy(s *fakeStore, addr []byte) uint64 {
 
 func readCplq(s *fakeStore, addr []byte) uint64 {
 	return DecodeUint64(s.get(KeyForCPLQBalance(addr)))
+}
+
+// rewardBaseStake is the arbitrary pre-existing committee stake the reward
+// helpers record as the observation baseline. ProcessRewards observes committee
+// stake *growth*, so only stake above this baseline counts as fresh reward; the
+// value itself is immaterial as long as it is non-zero (a zero baseline is the
+// first-observation seed case that distributes nothing).
+const rewardBaseStake uint64 = 1_000_000_000
+
+// setCommitteeStake writes a live Canopy validator record for addr, bonded to
+// this committee with StakedAmount == stake. ProcessRewards sums these across
+// the ValidatorRegistry as canoLiq's observed committee position.
+func setCommitteeStake(s *fakeStore, c *Canoliq, addr []byte, stake uint64) {
+	val := &contract.Validator{Address: addr, StakedAmount: stake, Committees: []uint64{c.Config.ChainId}}
+	s.set(contract.KeyForValidator(addr), mustMarshal(val))
+}
+
+// seedReward arranges for the next ProcessRewards to observe exactly `reward`
+// uCNPY of fresh committee reward. It registers a single committee validator,
+// records rewardBaseStake as the observation baseline in globals, and sets the
+// validator's live stake to rewardBaseStake+reward (the growth Canopy compounded
+// into the bonded position). All other globals fields are preserved. Returns the
+// committee validator address, where the validator-incentive slice lands.
+func seedReward(t *testing.T, s *fakeStore, c *Canoliq, reward uint64) []byte {
+	t.Helper()
+	addr := addr20(0xC0)
+	reg := &contract.ValidatorRegistry{Entries: []*contract.ValidatorRegistryEntry{{Address: addr, Stake: rewardBaseStake}}}
+	s.set(KeyForValidatorRegistry(), mustMarshal(reg))
+	setCommitteeStake(s, c, addr, rewardBaseStake+reward)
+	g := loadGlobals(t, s)
+	g.LastProcessedRewardPool = rewardBaseStake
+	s.set(KeyForGlobals(), mustMarshal(g))
+	return addr
+}
+
+// readAllValidatorIncentives sums every per-validator infrastructure-incentive
+// accumulator regardless of address. With a populated registry the reward's
+// validator slice routes per-validator (not to the legacy aggregator key), so
+// conservation checks sum across the whole val-incentive subdomain.
+func readAllValidatorIncentives(s *fakeStore) uint64 {
+	prefix := string(JoinLenPrefix(canoliqPrefix, domainValIncent))
+	// The validator registry singleton shares the domainValIncent subdomain
+	// (see KeyForValidatorRegistry); it holds a proto, not a scalar, so skip it.
+	registryKey := string(KeyForValidatorRegistry())
+	var total uint64
+	for k, v := range s.data {
+		if k == registryKey {
+			continue
+		}
+		if strings.HasPrefix(k, prefix) {
+			total += DecodeUint64(v)
+		}
+	}
+	return total
 }
 
 func loadGlobals(t *testing.T, s *fakeStore) *contract.CanoliqGlobals {
@@ -237,10 +292,8 @@ func TestRewardSplitWhitepaperExample(t *testing.T) {
 	g := &contract.CanoliqGlobals{GenesisComplete: true}
 	gBz, _ := contract.Marshal(g)
 	s.set(KeyForGlobals(), gBz)
-	// Seed the committee pool with X=1000 uCNPY.
-	pool := &contract.Pool{Id: c.Config.ChainId, Amount: 1000}
-	pBz, _ := contract.Marshal(pool)
-	s.set(contract.KeyForFeePool(c.Config.ChainId), pBz)
+	// Observe X=1000 uCNPY of committee reward as bonded-stake growth.
+	seedReward(t, s, c, 1000)
 
 	if err := c.ProcessRewards(&contract.PluginEndRequest{Height: 1}); err != nil {
 		t.Fatalf("ProcessRewards: %v", err)
@@ -259,18 +312,13 @@ func TestRewardSplitWhitepaperExample(t *testing.T) {
 	if got := DecodeUint64(s.get(KeyForBuybackPool())); got != 18 {
 		t.Errorf("buyback: got %d want 18", got)
 	}
-	addr := c.committeeAggregatorAddr()
-	if got := DecodeUint64(s.get(KeyForValidatorIncentives(addr))); got != 18 {
+	if got := readAllValidatorIncentives(s); got != 18 {
 		t.Errorf("validators: got %d want 18", got)
 	}
-	// H1: the committee pool fully drains (1000 in - 1000 swept). The 928 user
-	// slice now lands in the escrow pool, so the committee pool and the
-	// post-drain LastProcessedRewardPool baseline are both 0.
-	if g2.LastProcessedRewardPool != 0 {
-		t.Errorf("last_processed_reward_pool: got %d want 0", g2.LastProcessedRewardPool)
-	}
-	if got := readPool(s, c.Config.ChainId); got != 0 {
-		t.Errorf("post-sweep committee pool: got %d want 0", got)
+	// The watermark now records the observed committee stake (baseline + reward),
+	// and the 928 user slice lands in the escrow pool.
+	if g2.LastProcessedRewardPool != rewardBaseStake+1000 {
+		t.Errorf("last_processed_reward_pool: got %d want %d", g2.LastProcessedRewardPool, rewardBaseStake+1000)
 	}
 	if got := readEscrow(s); got != 928 {
 		t.Errorf("escrow pool: got %d want 928", got)
@@ -298,9 +346,7 @@ func TestWhitepaperSection7Reconciliation(t *testing.T) {
 	s.set(KeyForGlobals(), gBz)
 	const R = 950 // canoLiq's committee share — non-round to exercise truncation
 
-	pool := &contract.Pool{Id: c.Config.ChainId, Amount: R}
-	pBz, _ := contract.Marshal(pool)
-	s.set(contract.KeyForFeePool(c.Config.ChainId), pBz)
+	seedReward(t, s, c, R)
 
 	if err := c.ProcessRewards(&contract.PluginEndRequest{Height: 1}); err != nil {
 		t.Fatalf("ProcessRewards: %v", err)
@@ -329,7 +375,7 @@ func TestWhitepaperSection7Reconciliation(t *testing.T) {
 	if got := DecodeUint64(s.get(KeyForBuybackPool())); got != wantBuyback {
 		t.Errorf("buyback: got %d want %d", got, wantBuyback)
 	}
-	if got := DecodeUint64(s.get(KeyForValidatorIncentives(c.committeeAggregatorAddr()))); got != wantValidators {
+	if got := readAllValidatorIncentives(s); got != wantValidators {
 		t.Errorf("validators: got %d want %d", got, wantValidators)
 	}
 	// Conservation: R = userYield + treasury + insurance + validators + buyback.
@@ -337,14 +383,14 @@ func TestWhitepaperSection7Reconciliation(t *testing.T) {
 		DecodeUint64(s.get(KeyForTreasuryCNPY())) +
 		DecodeUint64(s.get(KeyForInsurancePool())) +
 		DecodeUint64(s.get(KeyForBuybackPool())) +
-		DecodeUint64(s.get(KeyForValidatorIncentives(c.committeeAggregatorAddr())))
+		readAllValidatorIncentives(s)
 	if total != R {
 		t.Errorf("conservation: %d (yield %d + treasury %d + insurance %d + buyback %d + validators %d) want %d",
 			total, g2.TotalPooledCnpy,
 			DecodeUint64(s.get(KeyForTreasuryCNPY())),
 			DecodeUint64(s.get(KeyForInsurancePool())),
 			DecodeUint64(s.get(KeyForBuybackPool())),
-			DecodeUint64(s.get(KeyForValidatorIncentives(c.committeeAggregatorAddr()))),
+			readAllValidatorIncentives(s),
 			R)
 	}
 	_ = wantFee
@@ -592,39 +638,38 @@ func TestRewardSweepMultiBlock(t *testing.T) {
 	gBz, _ := contract.Marshal(g)
 	s.set(KeyForGlobals(), gBz)
 
-	setPool := func(amount uint64) {
-		p := &contract.Pool{Id: c.Config.ChainId, Amount: amount}
-		bz, _ := contract.Marshal(p)
-		s.set(contract.KeyForFeePool(c.Config.ChainId), bz)
-	}
-	addToPool := func(delta uint64) {
-		p := new(contract.Pool)
-		_ = contract.Unmarshal(s.get(contract.KeyForFeePool(c.Config.ChainId)), p)
-		p.Amount += delta
-		bz, _ := contract.Marshal(p)
-		s.set(contract.KeyForFeePool(c.Config.ChainId), bz)
-	}
+	valAddr := addr20(0xC0)
+	reg := &contract.ValidatorRegistry{Entries: []*contract.ValidatorRegistryEntry{{Address: valAddr, Stake: rewardBaseStake}}}
+	s.set(KeyForValidatorRegistry(), mustMarshal(reg))
+	// The committee's bonded stake starts at rewardBaseStake; each block Canopy
+	// compounds fresh reward into it. setObserved raises the live stake to
+	// rewardBaseStake+cumulative so ProcessRewards isolates the per-block growth.
+	setObserved := func(cumulative uint64) { setCommitteeStake(s, c, valAddr, rewardBaseStake+cumulative) }
+	// Seed the baseline so the first block's growth (not the pre-existing stake)
+	// is the reward.
+	gInit := loadGlobals(t, s)
+	gInit.LastProcessedRewardPool = rewardBaseStake
+	s.set(KeyForGlobals(), mustMarshal(gInit))
 
-	// Block 1: 1000 inflow → fee 120 → user share 928, treasury 36, val 18, buyback 18.
-	setPool(1000)
+	// Block 1: 1000 growth → fee 120 → user share 928, treasury 36, val 18, buyback 18.
+	setObserved(1000)
 	if err := c.ProcessRewards(&contract.PluginEndRequest{Height: 1}); err != nil {
 		t.Fatalf("block 1: %v", err)
 	}
 	g1 := loadGlobals(t, s)
-	// H1: the committee pool fully drains each block; the user slice (928) now
-	// lives in the escrow pool, and LastProcessedRewardPool returns to its
-	// post-drain baseline (0).
-	if g1.TotalPooledCnpy != 928 || g1.LastProcessedRewardPool != 0 {
-		t.Fatalf("block 1 globals: pooled=%d last=%d (want 928/0)",
-			g1.TotalPooledCnpy, g1.LastProcessedRewardPool)
+	// The user slice (928) lands in the escrow pool; the watermark advances to
+	// the observed committee stake (baseline + 1000).
+	if g1.TotalPooledCnpy != 928 || g1.LastProcessedRewardPool != rewardBaseStake+1000 {
+		t.Fatalf("block 1 globals: pooled=%d last=%d (want 928/%d)",
+			g1.TotalPooledCnpy, g1.LastProcessedRewardPool, rewardBaseStake+1000)
 	}
 	if got := readEscrow(s); got != 928 {
 		t.Fatalf("block 1 escrow: got %d want 928", got)
 	}
 
-	// Block 2: +500 fresh inflow on top of the post-sweep pool. Delta must
-	// isolate to 500, NOT the cumulative 1428.
-	addToPool(500)
+	// Block 2: +500 fresh growth on top of the prior stake. Delta must isolate
+	// to 500, NOT the cumulative 1500.
+	setObserved(1500)
 	if err := c.ProcessRewards(&contract.PluginEndRequest{Height: 2}); err != nil {
 		t.Fatalf("block 2: %v", err)
 	}
@@ -633,8 +678,8 @@ func TestRewardSweepMultiBlock(t *testing.T) {
 	if g2.TotalPooledCnpy != 1392 {
 		t.Fatalf("block 2 pooled: got %d want 1392", g2.TotalPooledCnpy)
 	}
-	if g2.LastProcessedRewardPool != 0 {
-		t.Fatalf("block 2 last-processed: got %d want 0", g2.LastProcessedRewardPool)
+	if g2.LastProcessedRewardPool != rewardBaseStake+1500 {
+		t.Fatalf("block 2 last-processed: got %d want %d", g2.LastProcessedRewardPool, rewardBaseStake+1500)
 	}
 	if got := readEscrow(s); got != 1392 {
 		t.Fatalf("block 2 escrow: got %d want 1392", got)
@@ -651,7 +696,7 @@ func TestRewardSweepMultiBlock(t *testing.T) {
 	if got := DecodeUint64(s.get(KeyForBuybackPool())); got != 27 {
 		t.Errorf("buyback cumulative: got %d want 27", got)
 	}
-	if got := DecodeUint64(s.get(KeyForValidatorIncentives(c.committeeAggregatorAddr()))); got != 27 {
+	if got := readAllValidatorIncentives(s); got != 27 {
 		t.Errorf("validators cumulative: got %d want 27", got)
 	}
 
@@ -699,21 +744,10 @@ func TestCompositeDepositRewardRedeem(t *testing.T) {
 		t.Fatalf("post-deposit cCNPY: got %d want 1_000_000", got)
 	}
 
-	// 2) Pin the watermark to the current pool balance so the upcoming reward
-	//    delta is isolated from any side effects of the deposit (its 10_000
-	//    fee accrued into the same committee pool key).
-	gAfterDeposit := loadGlobals(t, s)
-	gAfterDeposit.LastProcessedRewardPool = readPool(s, c.Config.ChainId)
-	gBz2, _ := contract.Marshal(gAfterDeposit)
-	s.set(KeyForGlobals(), gBz2)
-
-	// 3) Inject a 1_000_000 reward into the committee pool (simulates a
-	//    MessageSubsidy crediting the canoLiq committee).
-	pool := new(contract.Pool)
-	_ = contract.Unmarshal(s.get(contract.KeyForFeePool(c.Config.ChainId)), pool)
-	pool.Amount += 1_000_000
-	pBz, _ := contract.Marshal(pool)
-	s.set(contract.KeyForFeePool(c.Config.ChainId), pBz)
+	// 2+3) Observe a 1_000_000 committee reward as bonded-stake growth
+	//      (Canopy compounds the committee reward into the position). seedReward
+	//      records the baseline so only this growth counts as fresh reward.
+	seedReward(t, s, c, 1_000_000)
 
 	// 4) Process rewards. Per the canonical 12% / 40-30-15-15 split:
 	//    fee=120_000, net=880_000, rebate=48_000 → user share = 928_000.
