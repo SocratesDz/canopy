@@ -61,7 +61,10 @@ message CanoliqGlobals {
   uint64 total_pooled_cnpy = 2; // @gotags: json:"totalPooledCnpy"
   // pending_redemption_cnpy: CNPY reserved for in-flight redemptions (uCNPY)
   uint64 pending_redemption_cnpy = 3; // @gotags: json:"pendingRedemptionCnpy"
-  // last_processed_reward_pool: pool balance observed at the last reward sweep
+  // last_processed_reward_pool: aggregate canoLiq committee stake observed at
+  // the last reward sweep. Reward is the block-over-block growth of this value
+  // (Canopy compounds committee rewards into bonded stake); the field name is
+  // retained for wire/JSON compatibility. See reward.go::ProcessRewards.
   uint64 last_processed_reward_pool = 4; // @gotags: json:"lastProcessedRewardPool"
   // cplq_total_supply: hard-cap CPLQ supply minted at genesis (uCPLQ)
   uint64 cplq_total_supply = 5; // @gotags: json:"cplqTotalSupply"

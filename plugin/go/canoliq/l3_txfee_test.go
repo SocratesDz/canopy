@@ -20,9 +20,9 @@ func TestL3TxFeesBypassRewardSplitAndRouteToTreasury(t *testing.T) {
 
 	const reward = 1_000_000
 	const txFee = 10_000
-	pool := &contract.Pool{Id: c.Config.ChainId, Amount: reward + txFee}
-	pBz, _ := contract.Marshal(pool)
-	s.set(contract.KeyForFeePool(c.Config.ChainId), pBz)
+	// Committee reward arrives as bonded-stake growth; the accrued protocol
+	// tx-fee is tracked in its own scalar and routes straight to the treasury.
+	seedReward(t, s, c, reward)
 	s.set(KeyForTxFeeAccrual(), EncodeUint64(txFee))
 
 	if err := c.ProcessRewards(&contract.PluginEndRequest{Height: 1}); err != nil {

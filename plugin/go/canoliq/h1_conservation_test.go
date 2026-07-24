@@ -22,7 +22,7 @@ func physicalCnpy(s *fakeStore, c *Canoliq, users ...[]byte) uint64 {
 	total += DecodeUint64(s.get(KeyForTreasuryCNPY()))
 	total += DecodeUint64(s.get(KeyForBuybackPool()))
 	total += DecodeUint64(s.get(KeyForInsurancePool()))
-	total += DecodeUint64(s.get(KeyForValidatorIncentives(c.committeeAggregatorAddr())))
+	total += readAllValidatorIncentives(s)
 	return total
 }
 
@@ -36,16 +36,6 @@ func assertEscrowInvariant(t *testing.T, s *fakeStore) {
 		t.Fatalf("escrow invariant broken: escrow=%d, want TotalPooled(%d)+Pending(%d)=%d",
 			got, g.TotalPooledCnpy, g.PendingRedemptionCnpy, want)
 	}
-}
-
-// addCommitteePool credits the committee fee pool, simulating an external
-// Canopy committee-reward subsidy minted into the pool.
-func addCommitteePool(s *fakeStore, c *Canoliq, delta uint64) {
-	p := new(contract.Pool)
-	_ = contract.Unmarshal(s.get(contract.KeyForFeePool(c.Config.ChainId)), p)
-	p.Amount += delta
-	bz, _ := contract.Marshal(p)
-	s.set(contract.KeyForFeePool(c.Config.ChainId), bz)
 }
 
 // TestH1CnpyConservationLifecycle is the H1 regression guard: CNPY is conserved
@@ -88,10 +78,11 @@ func TestH1CnpyConservationLifecycle(t *testing.T) {
 	}
 	assertEscrowInvariant(t, s)
 
-	// 2) Reward: external subsidy R minted into the committee pool, then swept.
-	// Physical total rises by exactly R; the user slice lands in escrow.
+	// 2) Reward: committee reward R compounds into the bonded committee stake,
+	// observed by ProcessRewards. Physical total rises by exactly R (mirrored
+	// across the plugin's accounting keys); the user slice lands in escrow.
 	const reward = 500_000
-	addCommitteePool(s, c, reward)
+	seedReward(t, s, c, reward)
 	if err := c.ProcessRewards(&contract.PluginEndRequest{Height: 1}); err != nil {
 		t.Fatalf("rewards: %v", err)
 	}

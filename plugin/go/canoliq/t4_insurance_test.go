@@ -11,11 +11,27 @@ import (
 // (insurance_target_bps of peak TVL) and back on as peak TVL grows, with the
 // redirected amount conserved into the treasury.
 
-// runSweep sets the committee pool to lastProcessed+delta and runs one reward
-// sweep at the given height.
+// runSweep grows the committee's observed bonded stake by `delta` above the
+// baseline recorded in globals and runs one reward sweep at the given height.
+// A `delta` of 0 leaves the observed stake at the baseline, exercising the
+// no-fresh-reward path. The baseline is seeded non-zero on first use so the
+// sweep distributes (a zero baseline is the first-observation seed case). The
+// `lastProcessed` parameter is retained for call-site readability only — the
+// baseline is always taken from globals.LastProcessedRewardPool.
 func runSweep(t *testing.T, c *Canoliq, s *fakeStore, lastProcessed, delta, height uint64) {
 	t.Helper()
-	s.set(contract.KeyForFeePool(c.Config.ChainId), mustMarshal(&contract.Pool{Id: c.Config.ChainId, Amount: lastProcessed + delta}))
+	_ = lastProcessed
+	g := loadGlobals(t, s)
+	base := g.LastProcessedRewardPool
+	if base == 0 {
+		base = rewardBaseStake
+		g.LastProcessedRewardPool = base
+		s.set(KeyForGlobals(), mustMarshal(g))
+	}
+	valAddr := addr20(0xC0)
+	reg := &contract.ValidatorRegistry{Entries: []*contract.ValidatorRegistryEntry{{Address: valAddr, Stake: rewardBaseStake}}}
+	s.set(KeyForValidatorRegistry(), mustMarshal(reg))
+	setCommitteeStake(s, c, valAddr, base+delta)
 	if err := c.ProcessRewards(&contract.PluginEndRequest{Height: height}); err != nil {
 		t.Fatalf("process rewards: %v", err)
 	}
@@ -70,7 +86,7 @@ func TestT4SkimOffAtTargetConserves(t *testing.T) {
 	g := loadGlobals(t, s)
 	pooledIncrease := g.TotalPooledCnpy // started at 0
 	buyback := DecodeUint64(s.get(KeyForBuybackPool()))
-	validators := DecodeUint64(s.get(KeyForValidatorIncentives(c.committeeAggregatorAddr())))
+	validators := readAllValidatorIncentives(s)
 	insuranceIncrease := insurancePool(s) - 500_000 // 0
 	total := pooledIncrease + treasuryCnpy(s) + buyback + validators + insuranceIncrease
 	if total != t4Delta {
@@ -119,8 +135,8 @@ func TestT4PeakInitializesFromPoolOnMigration(t *testing.T) {
 		GenesisComplete: true, TotalPooledCnpy: 5_000_000,
 		PeakTvlUcnpy: 0, LastProcessedRewardPool: 1_000,
 	})
-	// No fresh delta: pool == lastProcessed.
-	runSweep(t, c, s, 0, 1_000, 1)
+	// No fresh delta: observed stake == baseline (delta 0).
+	runSweep(t, c, s, 0, 0, 1)
 	if got := loadGlobals(t, s).PeakTvlUcnpy; got != 5_000_000 {
 		t.Errorf("peak should initialize from current pool: got %d want 5_000_000", got)
 	}

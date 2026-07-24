@@ -214,8 +214,15 @@ func TestT1ValidatorEjectSkipsRewards(t *testing.T) {
 		{Address: v1, Stake: 500}, {Address: v2, Stake: 500},
 	}}
 	s.set(KeyForValidatorRegistry(), mustMarshal(registry))
-	// Pre-ejection: both validators share the first sweep (X=1000 → validators=18 → 9/9).
-	s.set(contract.KeyForFeePool(c.Config.ChainId), mustMarshal(&contract.Pool{Id: c.Config.ChainId, Amount: 1000}))
+	// Live committee stake starts at the registry weights (sum 1000, the
+	// baseline); compound X=1000 of reward into v1 so the observed committee
+	// stake grows by 1000. Pre-ejection both validators share the sweep 9/9.
+	setCommitteeStake(s, c, v1, 500)
+	setCommitteeStake(s, c, v2, 500)
+	g0 := loadGlobals(t, s)
+	g0.LastProcessedRewardPool = 1000
+	s.set(KeyForGlobals(), mustMarshal(g0))
+	setCommitteeStake(s, c, v1, 500+1000)
 	if err := c.ProcessRewards(&contract.PluginEndRequest{Height: 1}); err != nil {
 		t.Fatalf("sweep 1: %v", err)
 	}
@@ -241,11 +248,13 @@ func TestT1ValidatorEjectSkipsRewards(t *testing.T) {
 		t.Errorf("v1 incentives after eject: got %d want 0", got)
 	}
 
-	// Post-ejection sweep: drive a clean delta of 1000 (the pool sits at 928
-	// after sweep 1: 880 net + 48 user-rebate re-credited). validators=18, all
-	// to the lone survivor v2.
+	// Post-ejection sweep: ejecting v1 removes its stake from the observation
+	// set, so reset the baseline to the lone survivor's live stake and compound
+	// a clean 1000 of reward into v2. validators=18, all to v2.
 	g := loadGlobals(t, s)
-	s.set(contract.KeyForFeePool(c.Config.ChainId), mustMarshal(&contract.Pool{Id: c.Config.ChainId, Amount: g.LastProcessedRewardPool + 1000}))
+	g.LastProcessedRewardPool = 500 // v2's live committee stake
+	s.set(KeyForGlobals(), mustMarshal(g))
+	setCommitteeStake(s, c, v2, 500+1000)
 	if err := c.ProcessRewards(&contract.PluginEndRequest{Height: 3}); err != nil {
 		t.Fatalf("sweep 2: %v", err)
 	}

@@ -223,10 +223,11 @@ func KeyForAlertState(kind string) []byte {
 }
 
 // KeyForTxFeeAccrual returns the singleton scalar accumulating protocol tx-fee
-// revenue collected into the committee pool since the last reward sweep (L3).
-// ProcessRewards subtracts it from the reward delta (so tx fees are not
-// distributed as staking reward) and routes it to the DAO treasury, then zeroes
-// it. Bumped centrally in DeliverTx on each successful tx.
+// revenue collected since the last reward sweep (L3). ProcessRewards routes it
+// straight to the DAO treasury — it is protocol revenue, not committee reward,
+// so it is kept out of the 12% fee + 40/30/15/15 split applied to the observed
+// stake-growth reward — then zeroes it. Bumped centrally in DeliverTx on each
+// successful tx.
 func KeyForTxFeeAccrual() []byte {
 	return JoinLenPrefix(canoliqPrefix, domainTxFeeAccrual)
 }
