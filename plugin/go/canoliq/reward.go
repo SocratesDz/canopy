@@ -17,11 +17,26 @@ import (
 // time we look — it cannot be swept. Instead, Canopy compounds each block's
 // committee reward into the bonded StakedAmount of the committee's validators
 // (DistributeCommitteeReward, Compound=true). We therefore observe the
-// block-over-block growth of canoLiq's committee validator stake (summed from
-// the ValidatorRegistry) as the received reward R, and store the last observed
-// aggregate in globals.last_processed_reward_pool (repurposed to mean "last
-// observed committee stake"). canoLiq's own protocol tx-fees are tracked
-// separately in KeyForTxFeeAccrual and route straight to the DAO treasury.
+// block-over-block growth of canoLiq's committee validator stake as the
+// received reward R, and store the last observed aggregate in
+// globals.last_processed_reward_pool (repurposed to mean "last observed
+// committee stake"). canoLiq's own protocol tx-fees are tracked separately in
+// KeyForTxFeeAccrual and route straight to the DAO treasury.
+//
+// The observed member set is reconciled against Canopy's live committee
+// membership on every call (registry.go::syncCommitteeRegistry) so validators
+// that join or leave committee `chainId` post-genesis are accounted for. The
+// reward is the *lesser* of two independent estimates of that growth:
+//
+//   - per-validator: Σ growth of members already registered last block, which
+//     ignores the bond a newly admitted member brings with it, and
+//   - aggregate: the growth of the whole member set against the watermark,
+//     which ignores a stale per-validator baseline (e.g. the first sync after
+//     an upgrade, where the seeded genesis weights are not real stakes).
+//
+// Each estimate is exact except in the case the other one covers, so the min
+// is right whenever either is, and conservative (under-credits for one block)
+// when membership churns in both directions at once.
 func (c *Canoliq) ProcessRewards(req *contract.PluginEndRequest) *contract.PluginError {
 	params, err := c.LoadParams()
 	if err != nil {
@@ -66,30 +81,49 @@ func (c *Canoliq) ProcessRewards(req *contract.PluginEndRequest) *contract.Plugi
 		// Genesis has not run yet; nothing to do.
 		return nil
 	}
-	// Sum the live Canopy stake of canoLiq's committee validators.
-	observedStake, err := c.observedCommitteeStake()
+	// Reconcile the committee member set with Canopy's live validator records
+	// and observe the growth of their bonded stake.
+	obs, err := c.syncCommitteeRegistry()
 	if err != nil {
 		return err
 	}
+	registryOp, e := registrySetOp(obs.registry)
+	if e != nil {
+		return e
+	}
+	observedStake := obs.total
 	baseline := globals.LastProcessedRewardPool
-	// Seed-and-return when there is no positive growth to distribute:
-	//   - baseline == 0: the first observation (fresh node / post-upgrade).
-	//     Adopt the current stake as the baseline so pre-existing bonded stake
-	//     is not mistaken for one giant reward on the next block.
-	//   - observedStake <= baseline: an unstake / slash shrank the position, so
-	//     there is no reward this block. Reset the baseline so growth resumes
-	//     cleanly from the new (lower) level.
-	// Either branch still advances the peak-TVL high-water mark (T4).
-	if baseline == 0 || observedStake <= baseline {
+	// rewardDelta is pure Canopy committee reward — see the min() rationale in
+	// the doc comment above.
+	rewardDelta := obs.reward
+	if observedStake <= baseline {
+		// An unstake / slash / departure shrank the aggregate position: take no
+		// reward this block and let the watermark reset to the new level.
+		rewardDelta = 0
+	} else if aggregate := observedStake - baseline; aggregate < rewardDelta {
+		rewardDelta = aggregate
+	}
+	// Seed-and-return when there is no growth to distribute. baseline == 0 is
+	// the first observation ever (fresh node / post-upgrade): adopt the current
+	// stake as the watermark so pre-existing bonded stake is not mistaken for
+	// one giant reward. Either way the peak-TVL high-water mark (T4) still
+	// advances and the reconciled registry is still persisted.
+	if baseline == 0 || rewardDelta == 0 {
 		if globals.TotalPooledCnpy > globals.PeakTvlUcnpy {
 			globals.PeakTvlUcnpy = globals.TotalPooledCnpy
 		}
 		globals.LastProcessedRewardPool = observedStake
-		return c.SaveGlobals(globals)
+		gBz, err := contract.Marshal(globals)
+		if err != nil {
+			return err
+		}
+		if _, err := c.plugin.StateWrite(c, &contract.PluginStateWriteRequest{
+			Sets: []*contract.PluginSetOp{{Key: globalsKey, Value: gBz}, registryOp},
+		}); err != nil {
+			return err
+		}
+		return nil
 	}
-	// rewardDelta is pure Canopy committee reward — the growth of the bonded
-	// committee stake since the last observation.
-	rewardDelta := observedStake - baseline
 	// L3: canoLiq's own protocol tx-fees accrue in their own scalar (every
 	// handler credits it) and route straight to the DAO treasury. They are
 	// protocol revenue, not committee reward, so they are NOT part of the 12%
@@ -132,6 +166,7 @@ func (c *Canoliq) ProcessRewards(req *contract.PluginEndRequest) *contract.Plugi
 	sets := []*contract.PluginSetOp{
 		{Key: globalsKey, Value: gBz},
 		{Key: escrowKey, Value: escrowBz},
+		registryOp,
 	}
 	// Treasury & buyback go into plugin-owned scalar keys. WP §9.2 (slashing
 	// risk) prescribes seeding an insurance pool from treasury inflow: skim
@@ -180,7 +215,7 @@ func (c *Canoliq) ProcessRewards(req *contract.PluginEndRequest) *contract.Plugi
 		})
 	}
 	if split.Validators > 0 {
-		valSets, err := c.distributeValidatorShare(split.Validators)
+		valSets, err := c.distributeValidatorShare(split.Validators, obs.registry)
 		if err != nil {
 			return err
 		}
@@ -191,50 +226,6 @@ func (c *Canoliq) ProcessRewards(req *contract.PluginEndRequest) *contract.Plugi
 	}
 	_ = req
 	return nil
-}
-
-// observedCommitteeStake sums the live Canopy StakedAmount of every canoLiq
-// committee validator listed in the ValidatorRegistry whose Committees include
-// this chain. Canopy compounds each block's committee reward into these bonded
-// positions, so the block-over-block growth of this sum is canoLiq's received
-// reward (see ProcessRewards). Returns 0 when the registry is empty/absent —
-// with no observable position there is no reward to distribute.
-func (c *Canoliq) observedCommitteeStake() (uint64, *contract.PluginError) {
-	registry, err := c.loadValidatorRegistry()
-	if err != nil {
-		return 0, err
-	}
-	if registry == nil || len(registry.Entries) == 0 {
-		return 0, nil
-	}
-	keys := make([]*contract.PluginKeyRead, 0, len(registry.Entries))
-	for _, e := range registry.Entries {
-		keys = append(keys, &contract.PluginKeyRead{QueryId: qid(), Key: contract.KeyForValidator(e.Address)})
-	}
-	resp, err := c.plugin.StateRead(c, &contract.PluginStateReadRequest{Keys: keys})
-	if err != nil {
-		return 0, err
-	}
-	if resp.Error != nil {
-		return 0, resp.Error
-	}
-	total := uint64(0)
-	for _, r := range resp.Results {
-		if len(r.Entries) == 0 {
-			continue
-		}
-		val := new(contract.Validator)
-		if e := contract.Unmarshal(r.Entries[0].Value, val); e != nil {
-			return 0, e
-		}
-		// Only count stake actually bonded to this committee — a validator that
-		// has left committee `chainId` no longer earns its reward here.
-		if !validatorOnCommittee(val, c.Config.ChainId) {
-			continue
-		}
-		total += val.StakedAmount
-	}
-	return total, nil
 }
 
 // validatorOnCommittee reports whether val is a member of the given committee.
@@ -282,13 +273,14 @@ func (c *Canoliq) committeeAggregatorAddr() []byte {
 // Phase 1 behavior — so Phase 1 tests continue to pass unchanged. Rounding
 // remainder is credited to the largest-stake validator so the credited
 // total exactly equals the input share.
-func (c *Canoliq) distributeValidatorShare(share uint64) ([]*contract.PluginSetOp, *contract.PluginError) {
+//
+// `registry` is the set reconciled by this block's syncCommitteeRegistry, not
+// a re-read of state: the reconciled copy is only written at the end of
+// ProcessRewards, so a re-read here would pay out against last block's
+// membership.
+func (c *Canoliq) distributeValidatorShare(share uint64, registry *contract.ValidatorRegistry) ([]*contract.PluginSetOp, *contract.PluginError) {
 	if share == 0 {
 		return nil, nil
-	}
-	registry, err := c.loadValidatorRegistry()
-	if err != nil {
-		return nil, err
 	}
 	if registry == nil || len(registry.Entries) == 0 {
 		// Legacy aggregator path.
@@ -339,6 +331,14 @@ func (c *Canoliq) distributeValidatorShare(share uint64) ([]*contract.PluginSetO
 // absent so a passed eject proposal can never halt BeginBlock. Future reward
 // sweeps redistribute pro-rata over the remaining registry entries, so the
 // ejected validator simply stops receiving a share.
+//
+// The removal is also recorded as a tombstone (KeyForEjectedValidator) because
+// the registry is reconciled against Canopy's live committee membership every
+// block — the ejected operator is still a Canopy validator bonded to this
+// committee, so without the tombstone the next sync would re-admit it and the
+// ejection would last exactly one block. Its stake keeps earning Canopy
+// committee reward; canoLiq simply stops observing that stake and stops
+// crediting it.
 func (c *Canoliq) ejectValidator(addr []byte) *contract.PluginError {
 	registry, err := c.loadValidatorRegistry()
 	if err != nil {
@@ -346,7 +346,10 @@ func (c *Canoliq) ejectValidator(addr []byte) *contract.PluginError {
 	}
 	// Always clear any accrued incentives for the ejected address.
 	deletes := []*contract.PluginDeleteOp{{Key: KeyForValidatorIncentives(addr)}}
-	var sets []*contract.PluginSetOp
+	sets := []*contract.PluginSetOp{{
+		Key:   KeyForEjectedValidator(addr),
+		Value: EncodeUint64(c.plugin.CurrentHeight()),
+	}}
 	if registry != nil {
 		kept := registry.Entries[:0]
 		for _, e := range registry.Entries {

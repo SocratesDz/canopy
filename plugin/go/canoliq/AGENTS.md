@@ -51,42 +51,47 @@ are single-byte discriminators inside `JoinLenPrefix` segments — see
 `domainMultisig=18`, `domainInsurance=19`, `domainStakeIndex=20`. The validator
 registry reuses `domainValIncent` + the `indexSingleton` discriminator.
 
-**There is no range-scan.** The FSM only answers point reads, so iteration
-requires an explicit index. `VestingIndex`, `ProposalIndex`, `CPLQStakeIndex`,
-and the spend index (also a `ProposalIndex`) all exist for this reason. If
-you add a collection that needs sweeping, add an index key alongside it.
+**Prefer an explicit index over a range-scan.** `PluginStateReadRequest`
+does carry `Ranges` (prefix iteration, honored by `fsm/state.go::StateRead`),
+but every entry crosses the unix socket, so it is only worth it when the whole
+prefix is the answer — the stuck-redemption alert (`MatureRedemptionPrefix`),
+the ejection tombstones (`EjectedValidatorPrefix`), and the live-validator scan
+in `registry.go`. For anything read by key, keep the explicit index:
+`VestingIndex`, `ProposalIndex`, `CPLQStakeIndex`, and the spend index (also a
+`ProposalIndex`) all exist for this reason.
 
 ## Reward sweep mechanics
 
-`reward.go::ProcessRewards` runs in `EndBlock`. The committee pool key
-(`contract.KeyForFeePool(chainId)`) is **shared** with transaction-fee
-accumulation, so the sweep cannot just take the whole pool — it isolates the
-per-block reward delta against `CanoliqGlobals.LastProcessedRewardPool` and
-only processes the new inflow.
+`reward.go::ProcessRewards` runs in `EndBlock`. It does **not** sweep the
+committee fee pool: Canopy distributes and zeroes `KeyForFeePool(chainId)` in
+its own `EndBlock`, before this hook runs, compounding the reward into the
+bonded stake of the committee's validators. The sweep therefore observes the
+block-over-block *growth of that bonded stake* and isolates it against
+`CanoliqGlobals.LastProcessedRewardPool`, which means "last observed aggregate
+committee stake", not a pool balance. Read `ProcessRewards`' doc comment before
+changing any of it.
 
-After the sweep the watermark is reset to the post-sweep pool balance, **not**
-to zero, because user-rebate + net portions are credited back into the pool to
-back cCNPY redemption. Only the validator/treasury/buyback shares physically
-leave the pool (into plugin-owned scalar keys).
+The observed member set is the plugin's `ValidatorRegistry` singleton
+(`KeyForValidatorRegistry`), reconciled against Canopy's live committee
+membership on every call — see `registry.go`, which also explains why the
+observation is per-validator (a newcomer's bond must not read as reward) and
+why governance ejection needs the `KeyForEjectedValidator` tombstone
+(`domainEjected`) to survive the next sync. The genesis `validatorRegistry`
+block is a bootstrap convenience only; the first `EndBlock` overwrites it.
 
 Consequences:
 
-- Tests that mix deposit fees with reward injection must pin
-  `LastProcessedRewardPool` to the pool's value *after* the deposit so the
-  upcoming reward delta is isolated. See `TestCompositeDepositRewardRedeem`.
-- A no-inflow block must be a no-op; covered by the third block in
+- Tests seed a live `contract.Validator` record per member (`setCommitteeStake`)
+  *and* pin `LastProcessedRewardPool`; a registry entry with no matching live
+  validator record is dropped by the sync. See `seedReward`.
+- A no-growth block must be a no-op; covered by the third block in
   `TestRewardSweepMultiBlock`.
 
-The validator share is distributed pro-rata across the canoLiq committee
-validator set as of Phase 2. The set comes from a plugin-internal
-`ValidatorRegistry` singleton (`KeyForValidatorRegistry`) which is
-genesis-seedable and mutable via param-change governance. Phase 1.5 will
-swap the source for a real Canopy validator-set readback; until then the
-registry is the source of truth. **When the registry is empty** the legacy
-single-aggregator address (`committeeAggregatorAddr` = 20 bytes of `0xCA`)
-holds the entire share — Phase 1 baseline. Don't confuse the two paths in
-tests: assert against either the per-validator keys or the aggregator key,
-not both.
+The validator share is distributed pro-rata over that same set, weighted by
+live `StakedAmount`. **When the registry is empty** the legacy single-aggregator
+address (`committeeAggregatorAddr` = 20 bytes of `0xCA`) holds the entire
+share — Phase 1 baseline. Don't confuse the two paths in tests: assert against
+either the per-validator keys or the aggregator key, not both.
 
 ## Fee math
 

@@ -42,6 +42,7 @@ var (
 	domainMatureRedeem  = []byte{24}
 	domainEscrow        = []byte{25}
 	domainTxFeeAccrual  = []byte{26}
+	domainEjected       = []byte{27}
 
 	treasuryCanopy = []byte("canopy")
 	treasuryCplq   = []byte("cplq")
@@ -217,6 +218,22 @@ func KeyForValidatorRegistry() []byte {
 	return JoinLenPrefix(canoliqPrefix, domainValIncent, indexSingleton)
 }
 
+// KeyForEjectedValidator returns the tombstone key marking a validator that
+// governance ejected from the committee registry (F12). The value is the
+// big-endian height of the ejection. The registry is reconciled against
+// Canopy's live committee membership every block (see registry.go), so
+// without a persisted tombstone the very next sync would re-admit an ejected
+// operator and silently undo the passed proposal.
+func KeyForEjectedValidator(addr []byte) []byte {
+	return JoinLenPrefix(canoliqPrefix, domainEjected, addr)
+}
+
+// EjectedValidatorPrefix returns the prefix used to range-scan the ejection
+// tombstones during the per-block registry sync.
+func EjectedValidatorPrefix() []byte {
+	return JoinLenPrefix(canoliqPrefix, domainEjected)
+}
+
 // KeyForAlertState returns the per-kind alert bookkeeping key (T6).
 func KeyForAlertState(kind string) []byte {
 	return JoinLenPrefix(canoliqPrefix, domainAlertState, []byte(kind))
@@ -282,6 +299,24 @@ func ParseMatureRedemptionHeight(key []byte) (uint64, bool) {
 		return 0, false
 	}
 	return binary.BigEndian.Uint64(key[len(pre)+1 : len(pre)+9]), true
+}
+
+// ParseEjectedValidator extracts the 20-byte validator address from an
+// ejection tombstone key produced by KeyForEjectedValidator. Returns
+// `(addr, true)` on a recognised key; `(nil, false)` otherwise.
+func ParseEjectedValidator(key []byte) ([]byte, bool) {
+	pre := EjectedValidatorPrefix()
+	if len(key) != len(pre)+21 {
+		return nil, false
+	}
+	if !bytes.Equal(key[:len(pre)], pre) {
+		return nil, false
+	}
+	// After the prefix sits the length-prefixed 20-byte address.
+	if key[len(pre)] != 20 {
+		return nil, false
+	}
+	return key[len(pre)+1:], true
 }
 
 // EncodeUint64 returns the 8-byte big-endian encoding of n. Used for storing

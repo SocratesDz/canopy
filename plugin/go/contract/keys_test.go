@@ -65,3 +65,24 @@ func TestKeyForValidator(t *testing.T) {
 		t.Errorf("KeyForValidator: got %x want %x", got, want)
 	}
 }
+
+// TestValidatorPrefix verifies parity with fsm/key.go's ValidatorPrefix() and
+// that it actually prefixes the per-validator record keys — a range read over
+// it must return every validator record and nothing else. Every core key is
+// [1][prefixByte]..., so the two-byte prefix cannot collide with another
+// domain (accounts are 01 01, pools 01 02, canoliq's own records 01 14).
+func TestValidatorPrefix(t *testing.T) {
+	want := []byte{0x01, 0x03}
+	got := ValidatorPrefix()
+	if !bytes.Equal(got, want) {
+		t.Errorf("ValidatorPrefix: got %x want %x", got, want)
+	}
+	if !bytes.HasPrefix(KeyForValidator([]byte{0xDE, 0xAD}), got) {
+		t.Errorf("ValidatorPrefix must prefix KeyForValidator")
+	}
+	for _, other := range [][]byte{KeyForAccount([]byte{0xDE}), KeyForSupply(), KeyForFeePool(3), KeyForFeeParams()} {
+		if bytes.HasPrefix(other, got) {
+			t.Errorf("ValidatorPrefix must not match %x", other)
+		}
+	}
+}
