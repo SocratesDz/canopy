@@ -305,6 +305,17 @@ func KeyForValidator(addr []byte) []byte {
 	return JoinLenPrefix(validatorPrefix, addr)
 }
 
+// ValidatorPrefix returns the state database prefix every Canopy validator
+// record is stored under (fsm/key.go:ValidatorPrefix). Range-reading it
+// yields one entry per live validator, which is how the FSM itself derives
+// committee membership from protocol v2 onward (fsm/validator.go's
+// getValidatorSet filters getCurrentValidators by Validator.committees[]).
+// Plugins that need the live membership of their own committee — rather than
+// a hand-seeded snapshot of it — must do the same scan.
+func ValidatorPrefix() []byte {
+	return JoinLenPrefix(validatorPrefix)
+}
+
 func formatUint64(u uint64) []byte {
 	b := make([]byte, 8)
 	binary.BigEndian.PutUint64(b, u)

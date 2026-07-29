@@ -216,7 +216,10 @@ func TestT1ValidatorEjectSkipsRewards(t *testing.T) {
 	s.set(KeyForValidatorRegistry(), mustMarshal(registry))
 	// Live committee stake starts at the registry weights (sum 1000, the
 	// baseline); compound X=1000 of reward into v1 so the observed committee
-	// stake grows by 1000. Pre-ejection both validators share the sweep 9/9.
+	// stake grows by 1000. Pre-ejection both validators share the sweep's
+	// validator slice (18) pro-rata on their *live* stake, which the sync has
+	// refreshed to v1=1500 / v2=500: 13 + 4, with the rounding remainder to the
+	// largest holder (v1) → 14 / 4.
 	setCommitteeStake(s, c, v1, 500)
 	setCommitteeStake(s, c, v2, 500)
 	g0 := loadGlobals(t, s)
@@ -226,8 +229,11 @@ func TestT1ValidatorEjectSkipsRewards(t *testing.T) {
 	if err := c.ProcessRewards(&contract.PluginEndRequest{Height: 1}); err != nil {
 		t.Fatalf("sweep 1: %v", err)
 	}
-	if got := DecodeUint64(s.get(KeyForValidatorIncentives(v1))); got != 9 {
-		t.Errorf("pre-eject v1 share: got %d want 9", got)
+	if got := DecodeUint64(s.get(KeyForValidatorIncentives(v1))); got != 14 {
+		t.Errorf("pre-eject v1 share: got %d want 14", got)
+	}
+	if got := DecodeUint64(s.get(KeyForValidatorIncentives(v2))); got != 4 {
+		t.Errorf("pre-eject v2 share: got %d want 4", got)
 	}
 
 	// Eject v1 via dispatchPassed.
@@ -262,8 +268,8 @@ func TestT1ValidatorEjectSkipsRewards(t *testing.T) {
 		t.Errorf("v1 should receive nothing post-eject, got %d", got)
 	}
 	v2after := DecodeUint64(s.get(KeyForValidatorIncentives(v2)))
-	if v2after != 9+18 {
-		t.Errorf("v2 should hold its pre-eject 9 plus the full post-eject 18, got %d", v2after)
+	if v2after != 4+18 {
+		t.Errorf("v2 should hold its pre-eject 4 plus the full post-eject 18, got %d", v2after)
 	}
 }
 

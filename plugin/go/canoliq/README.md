@@ -232,8 +232,10 @@ are coordination tasks that can't be undone after first-block:
       `ProcessRewards` is a no-op.
 - [ ] **Validator opt-in confirmed.** Every validator that should be
       on the canoLiq committee has run `MessageEditStake` adding
-      `chainId` to its `Validator.Committees[]`. Cross-check against
-      the addresses you'll seed into `validatorRegistry`.
+      `chainId` to its `Validator.Committees[]`. This is the sole
+      source of truth: the plugin reconciles its `validatorRegistry`
+      against live committee membership every block, so opt-ins after
+      genesis are picked up on the next block.
 - [ ] **Bucket recipient addresses identified.** Test wallets are
       fine, but they must not be the localnet placeholder
       (`851e90…d123`) — the safety check refuses that automatically.
@@ -285,11 +287,12 @@ In the same file's `params` block:
 
 In the same file's `validatorRegistry` block:
 
-- Replace each entry with `(address, stake)` for a real opted-in
-  testnet validator. Stake should mirror that validator's
-  `Validator.StakedAmount`. Leaving the registry empty falls back
-  to a single committee aggregator key — fine for bring-up but
-  obscures per-validator credit, so you'll fix it eventually.
+- Optional. Each entry is `(address, stake)` for a real opted-in
+  testnet validator, with stake mirroring that validator's
+  `Validator.StakedAmount`. The first `EndBlock` overwrites the block
+  with live committee membership either way, so an empty registry is
+  fine — it just means the aggregator key holds the validator slice
+  until the first validator opts in.
 
 #### 1.2. Edit `canoliq-config.testnet.json`
 
@@ -496,7 +499,7 @@ Paste-ready for a release ticket:
 [ ] chainId reserved with Canopy team
 [ ] MessageSubsidy proposal queued/passed
 [ ] Validators opted into committee via MessageEditStake
-[ ] Validator registry block matches opted-in set
+[ ] Validator registry block matches opted-in set (bootstrap only; synced per block)
 [ ] genesis.testnet.json reviewed; bucket addresses replaced
 [ ] params block: multisigSigners + threshold replaced
 [ ] canoliq-config.testnet.json: chainId + redemptionUnstakingBlocks set
@@ -554,9 +557,9 @@ production:
       addresses are correct.
 - [ ] **Validator opt-in confirmed.** Every validator that should be
       on the canoLiq committee has run `MessageEditStake` adding the
-      target chainId to its `Validator.Committees[]`. Cross-check
-      against the validator list you'll seed into
-      `validatorRegistry`.
+      target chainId to its `Validator.Committees[]`. The plugin
+      reconciles `validatorRegistry` against live committee membership
+      every block, so this is the sole source of truth.
 - [ ] **chainId reserved with the Canopy team.** No collision with
       any existing committee.
 - [ ] **`MessageSubsidy` proposal queued or passed** on the Canopy
@@ -813,9 +816,10 @@ Two patterns depending on your existing infrastructure:
    only — no canopy code change). Each validator runs the canopy node
    binary with `CANOPY_PLUGIN_MODE=canoliq` and
    `CANOLIQ_CONFIG=/path/to/canoliq-config.production.json`.
-4. **Validator opt-in** via `MessageEditStake` adding chainId — must
-   land before the first canoliq block to avoid an empty validator
-   set.
+4. **Validator opt-in** via `MessageEditStake` adding chainId. Opt-ins
+   that land later are reconciled into the registry on the next block,
+   but until the first one lands there is no committee stake to observe
+   and no reward to distribute.
 5. **First-block bootstrap.** The plugin's `BeginBlock` self-bootstrap
    runs on first observation, mints 100M CPLQ to the production
    bucket addresses, and seeds the validator registry. There is no
@@ -937,7 +941,7 @@ A condensed pre-flight you can paste into a release ticket:
 [ ] chainId reserved with Canopy team
 [ ] MessageSubsidy proposal queued/passed
 [ ] Validators opted into committee via MessageEditStake
-[ ] Validator registry block matches opted-in set
+[ ] Validator registry block matches opted-in set (bootstrap only; synced per block)
 [ ] Private-chain bucket reconciliation: 100M × 10⁶ uCPLQ exact
 [ ] Private-chain lifecycle smoke test: deposit → redeem → claim
 [ ] Private-chain governance smoke test: propose → vote → execute
@@ -1193,13 +1197,43 @@ slice → ≈0.5% of fee) into `canoliq/insurance/pool` per WP §9.2. The skim
 auto-disables once the pool reaches the `insurance_target_bps` target
 (default 500 = 5% of `peak_tvl_ucnpy`), tracked from T4 onward.
 
-## Per-validator pro-rata
+## Committee validator registry
 
-The 15% validator-incentive slice is distributed proportionally across
-the canoLiq committee validator set, sourced from a plugin-internal
-`ValidatorRegistry` singleton. The registry is **seeded at genesis** via
-the `validatorRegistry` block in `genesis.localnet.json` /
-`genesis.testnet.json`:
+The plugin-internal `ValidatorRegistry` singleton is the member set both
+the reward observation and the 15% validator-incentive pro-rata run
+against. It is **reconciled against Canopy's live committee membership on
+every block**, inside `EndBlock` before the sweep
+(`registry.go::syncCommitteeRegistry`): the plugin range-reads every
+`lib.Validator` record and keeps those whose `Committees[]` contains this
+chain id — the same derivation the FSM uses (`getValidatorSet`), and the
+only one available since protocol v2 stopped writing per-committee index
+keys.
+
+So a validator that opts in post-genesis with `tx-stake` /
+`MessageEditStake` starts earning on the next block, and one that drops
+the committee stops, with no genesis edit or governance vote. Each entry's
+`stake` is refreshed to the validator's live `StakedAmount`, which serves
+as both the pro-rata weight and the next block's per-validator reward
+baseline.
+
+Two consequences worth knowing:
+
+- **A newly admitted member's bond is not reward.** The observation sums
+  per-validator growth over members that were already registered, so
+  joining the committee with a large bond does not credit that bond to
+  cCNPY holders. See `ProcessRewards`' doc comment for the aggregate cap
+  that covers the mirror-image case (a stale per-validator baseline).
+- **Ejection is a tombstone.** Because the registry is rebuilt from live
+  membership, a passed `validator-eject` proposal (F12) also writes
+  `KeyForEjectedValidator(addr)`; the sync skips tombstoned addresses.
+  The operator keeps its Canopy stake and keeps earning Canopy committee
+  reward — canoLiq simply stops observing and crediting it. There is no
+  un-eject message: re-admitting requires clearing the tombstone.
+
+The `validatorRegistry` block in `genesis.localnet.json` /
+`genesis.testnet.json` still seeds the registry at genesis, but it is now
+only a bootstrap convenience — the first `EndBlock` overwrites it with
+live membership:
 
 ```json
 "validatorRegistry": [
@@ -1208,15 +1242,10 @@ the `validatorRegistry` block in `genesis.localnet.json` /
 ]
 ```
 
-Each entry is `(address, stake)` where `stake` is the share-out weight
-(typically the validator's `StakedAmount` in uCNPY-equivalent). Future
-work is a live readback from Canopy's validator set so additions /
-removals via `MessageEditStake` propagate without a param-change vote.
-
-When the registry is **empty or omitted**, the legacy aggregator key
+When the registry is **empty** — no validator has opted into the committee
+yet — the legacy aggregator key
 (`KeyForValidatorIncentives(committeeAggregatorAddr)`) holds the full
-share — Phase 1 baseline behavior, useful for bring-up but obscures
-per-validator credit.
+share; there is nothing to observe, so no reward is distributed either.
 
 ## State key layout
 
