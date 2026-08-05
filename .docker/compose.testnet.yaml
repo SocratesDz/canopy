@@ -8,10 +8,22 @@
 # variants, so no rebuild-logic change is needed — this file only swaps which
 # config the plugin process loads.
 #
-# Note: the Canopy node genesis is still mounted from ./volumes/node_* (the
-# localnet validator set). This image is for exercising the canoLiq *plugin*
-# testnet config on a private multi-node bring-up; cutover against the real
-# Canopy testnet (README Phase 3) uses the live chain's own genesis.
+# Note: the Canopy node genesis is mounted from ./volumes/testnet_node_* (the
+# localnet validator set at its original 1,000 CNPY per-validator stake). This
+# image is for exercising the canoLiq *plugin* testnet config on a private
+# multi-node bring-up; cutover against the real Canopy testnet (README Phase 3)
+# uses the live chain's own genesis.
+#
+# These volumes are deliberately separate from compose.yaml's ./volumes/node_*.
+# The devnet ones carry a 1000x-inflated genesis validator stake so local
+# testers are not blocked by the canoLiq TVL cap, which is 33% of Canopy's
+# staked supply (tvl_cap_bps, DefaultParams in plugin/go/canoliq/config.go).
+# Sharing the volumes would silently import that inflated cap here and make the
+# T3 cap run-through meaningless — pre-flight must see the realistic 660 CNPY
+# ceiling. Keep the two sets in sync by hand for everything *except* the
+# validators[].stakedAmount field. Validator keys are the exception — they are
+# bind-mounted from ./volumes/node_* below rather than copied, so they cannot
+# drift.
 services:
   node-1:
     container_name: node-1
@@ -45,7 +57,13 @@ services:
       - CANOLIQ_CONFIG=/app/plugin/go/canoliq/canoliq-config.testnet.json
       - CANOLIQ_RPC_ADDR=0.0.0.0:8587
     volumes:
-      - ./volumes/node_1:/root/.canopy
+      - ./volumes/testnet_node_1:/root/.canopy
+      # Validator identity is shared with the devnet volumes rather than
+      # duplicated: these keys are already tracked under ./volumes/node_1,
+      # and a second copy would be new private key material in the repo for
+      # no benefit. The genesis validator set is the same either way.
+      - ./volumes/node_1/validator_key.json:/root/.canopy/validator_key.json
+      - ./volumes/node_1/keystore.json:/root/.canopy/keystore.json
   #    deploy:
   #      resources:
   #        limits:
@@ -78,7 +96,13 @@ services:
       - CANOLIQ_CONFIG=/app/plugin/go/canoliq/canoliq-config.testnet.json
       - CANOLIQ_RPC_ADDR=0.0.0.0:8587
     volumes:
-      - ./volumes/node_2:/root/.canopy
+      - ./volumes/testnet_node_2:/root/.canopy
+      # Validator identity is shared with the devnet volumes rather than
+      # duplicated: these keys are already tracked under ./volumes/node_2,
+      # and a second copy would be new private key material in the repo for
+      # no benefit. The genesis validator set is the same either way.
+      - ./volumes/node_2/validator_key.json:/root/.canopy/validator_key.json
+      - ./volumes/node_2/keystore.json:/root/.canopy/keystore.json
 #    deploy:
 #      resources:
 #        limits:
